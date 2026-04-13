@@ -3,6 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import { DishAPI, type Dish } from '@/api/pocketbase'
 import { useSettingsStore } from '@/stores/settings.store'
 import { escapeHtml } from '@/utils/security'
+import { dishFormSchema } from '@/schemas/dish.schema'
+import type { ZodError } from 'zod'
 
 const settingsStore = useSettingsStore()
 
@@ -68,9 +70,16 @@ function closeModal() {
   editingDish.value = null
 }
 
+const formErrors = ref<Record<string, string>>({})
+
 async function saveDish() {
-  if (!form.value.name || !form.value.category || isNaN(form.value.price)) {
-    alert('请填写完整信息')
+  formErrors.value = {}
+  const parsed = dishFormSchema.safeParse(form.value)
+  if (!parsed.success) {
+    ;(parsed.error as ZodError).issues.forEach((issue) => {
+      const key = issue.path[0] as string
+      if (!formErrors.value[key]) formErrors.value[key] = issue.message
+    })
     return
   }
   try {
@@ -142,7 +151,7 @@ async function deleteDish(dish: Dish) {
     </div>
 
     <!-- 表格 -->
-    <div class="bg-white rounded-lg shadow overflow-hidden">
+    <div class="bg-white rounded-lg shadow overflow-x-auto">
       <table class="min-w-full divide-y divide-gray-200">
         <thead class="bg-gray-50">
           <tr>
@@ -206,19 +215,25 @@ async function deleteDish(dish: Dish) {
             <input
               v-model="form.name"
               type="text"
-              required
-              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              :class="[
+                'w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2',
+                formErrors.name ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500',
+              ]"
             />
+            <p v-if="formErrors.name" class="mt-1 text-xs text-red-600">{{ formErrors.name }}</p>
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-600 mb-1">分类 *</label>
             <select
               v-model="form.category"
-              required
-              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              :class="[
+                'w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2',
+                formErrors.category ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500',
+              ]"
             >
               <option v-for="cat in settingsStore.categories" :key="cat" :value="cat">{{ cat }}</option>
             </select>
+            <p v-if="formErrors.category" class="mt-1 text-xs text-red-600">{{ formErrors.category }}</p>
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-600 mb-1">价格 *</label>
@@ -227,9 +242,12 @@ async function deleteDish(dish: Dish) {
               type="number"
               min="0"
               step="0.01"
-              required
-              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              :class="[
+                'w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2',
+                formErrors.price ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500',
+              ]"
             />
+            <p v-if="formErrors.price" class="mt-1 text-xs text-red-600">{{ formErrors.price }}</p>
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-600 mb-1">描述</label>

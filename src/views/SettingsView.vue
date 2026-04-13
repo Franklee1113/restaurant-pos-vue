@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import { useSettingsStore } from '@/stores/settings.store'
-import { escapeHtml } from '@/utils/security'
+import { settingsFormSchema } from '@/schemas/settings.schema'
+import type { ZodError } from 'zod'
 
 const settingsStore = useSettingsStore()
 
@@ -12,6 +13,7 @@ const newCategory = ref('')
 const newTableNumber = ref('')
 const saving = ref(false)
 const message = ref('')
+const formErrors = ref<Record<string, string>>({})
 
 onMounted(() => {
   settingsStore.fetchSettings()
@@ -54,11 +56,28 @@ function removeTableNumber(tableNo: string) {
 async function save() {
   saving.value = true
   message.value = ''
+  formErrors.value = {}
+  const payload = {
+    restaurantName: restaurantName.value.trim(),
+    address: address.value.trim(),
+    phone: phone.value.trim(),
+    categories: settingsStore.categories,
+    tableNumbers: settingsStore.tableNumbers,
+  }
+  const parsed = settingsFormSchema.safeParse(payload)
+  if (!parsed.success) {
+    ;(parsed.error as ZodError).issues.forEach((issue) => {
+      const key = issue.path[0] as string
+      if (!formErrors.value[key]) formErrors.value[key] = issue.message
+    })
+    saving.value = false
+    return
+  }
   try {
     await settingsStore.saveSettings({
-      restaurantName: restaurantName.value.trim(),
-      address: address.value.trim(),
-      phone: phone.value.trim(),
+      restaurantName: payload.restaurantName,
+      address: payload.address,
+      phone: payload.phone,
     })
     message.value = '设置保存成功！'
     setTimeout(() => (message.value = ''), 3000)
@@ -88,24 +107,36 @@ async function save() {
             <input
               v-model="restaurantName"
               type="text"
-              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              :class="[
+                'w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2',
+                formErrors.restaurantName ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500',
+              ]"
             />
+            <p v-if="formErrors.restaurantName" class="mt-1 text-xs text-red-600">{{ formErrors.restaurantName }}</p>
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-600 mb-1">地址</label>
             <input
               v-model="address"
               type="text"
-              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              :class="[
+                'w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2',
+                formErrors.address ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500',
+              ]"
             />
+            <p v-if="formErrors.address" class="mt-1 text-xs text-red-600">{{ formErrors.address }}</p>
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-600 mb-1">电话</label>
             <input
               v-model="phone"
               type="text"
-              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              :class="[
+                'w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2',
+                formErrors.phone ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500',
+              ]"
             />
+            <p v-if="formErrors.phone" class="mt-1 text-xs text-red-600">{{ formErrors.phone }}</p>
           </div>
         </div>
       </div>

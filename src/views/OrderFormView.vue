@@ -5,6 +5,7 @@ import { OrderAPI, DishAPI, type Order, type Dish } from '@/api/pocketbase'
 import { useSettingsStore } from '@/stores/settings.store'
 import { OrderStatus, generateOrderNo } from '@/utils/orderStatus'
 import { MoneyCalculator, Validators } from '@/utils/security'
+import { orderFormSchema } from '@/schemas/order.schema'
 
 const route = useRoute()
 const router = useRouter()
@@ -138,36 +139,44 @@ function onDiscountTypeChange() {
   }
 }
 
+const formErrors = ref<Record<string, string>>({})
+
 async function submit() {
-  if (!tableNo.value) {
-    alert('请选择桌号')
-    return
-  }
-  if (!Validators.quantity(guests.value)) {
-    alert('用餐人数不合法')
-    return
-  }
-  if (discountType.value === 'amount') {
-    if (!Validators.amount(discountValue.value)) {
-      alert('折扣金额不合法')
-      return
-    }
-  } else {
-    if (discountValue.value <= 0 || discountValue.value > 10) {
-      alert('折扣比例应在0.1-10之间，如8代表8折')
-      return
-    }
-  }
-  if (cart.value.length === 0) {
-    alert('请至少选择一道菜品')
-    return
-  }
+  formErrors.value = {}
 
   const { total, final, discount } = MoneyCalculator.calculateWithDiscount(
     cart.value,
     discountValue.value,
     discountType.value,
   )
+
+  const payload = {
+    tableNo: tableNo.value,
+    guests: guests.value,
+    items: cart.value.map((item) => ({
+      dishId: item.dishId,
+      name: item.name,
+      price: item.price,
+      quantity: item.quantity,
+    })),
+    discountType: discountType.value,
+    discountValue: discountValue.value,
+  }
+
+  const parsed = orderFormSchema.safeParse(payload)
+  if (!parsed.success) {
+    parsed.error.issues.forEach((issue) => {
+      const key = issue.path[0] as string
+      if (!formErrors.value[key]) {
+        formErrors.value[key] = issue.message
+      }
+    })
+    // 额外校验折扣比例
+    if (payload.discountType === 'percent' && (payload.discountValue <= 0 || payload.discountValue > 10)) {
+      formErrors.value.discountValue = '折扣比例应在0.1-10之间，如8代表8折'
+    }
+    return
+  }
 
   if (!Validators.amount(total) || !Validators.amount(final)) {
     alert('订单金额异常，请检查')
@@ -222,19 +231,36 @@ async function submit() {
       <!-- Left: Dish Selection -->
       <div class="bg-white rounded-lg shadow p-4">
         <!-- Table & Guests -->
-        <div class="grid grid-cols-2 gap-3 mb-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
           <div>
             <label class="block text-sm font-medium text-gray-600 mb-1">选择桌号</label>
-            <select v-model="tableNo" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+            <select
+              v-model="tableNo"
+              :class="[
+                'w-full px-3 py-2 border rounded-md text-sm',
+                formErrors.tableNo ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500',
+              ]"
+            >
               <option value="">请选择桌号</option>
               <option v-for="t in settingsStore.tableNumbers" :key="t" :value="t">{{ t }}</option>
             </select>
+            <p v-if="formErrors.tableNo" class="mt-1 text-xs text-red-600">{{ formErrors.tableNo }}</p>
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-600 mb-1">人数</label>
-            <input v-model.number="guests" type="number" min="1" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-center" />
+            <input
+              v-model.number="guests"
+              type="number"
+              min="1"
+              :class="[
+                'w-full px-3 py-2 border rounded-md text-sm text-center',
+                formErrors.guests ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500',
+              ]"
+            />
+            <p v-if="formErrors.guests" class="mt-1 text-xs text-red-600">{{ formErrors.guests }}</p>
           </div>
         </div>
+        <div v-if="formErrors.items" class="mb-3 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">{{ formErrors.items }}</div>
 
         <!-- Edit mode status -->
         <div v-if="isEdit" class="mb-4">
@@ -269,7 +295,7 @@ async function submit() {
         <!-- Dishes Grid -->
         <div v-if="loading" class="text-center text-gray-500 py-8">加载中...</div>
         <div v-else-if="filteredDishes.length === 0" class="text-center text-gray-500 py-8">暂无菜品</div>
-        <div v-else class="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
+        <div v-else class="grid grid-cols-2 sm:grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
           <div
             v-for="dish in filteredDishes"
             :key="dish.id"
