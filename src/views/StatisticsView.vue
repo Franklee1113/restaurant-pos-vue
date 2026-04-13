@@ -13,12 +13,10 @@ const dateRange = ref('week')
 const startDate = ref('')
 const endDate = ref('')
 
-const chartRefs = {
-  trend: ref<HTMLDivElement | null>(null),
-  dishes: ref<HTMLDivElement | null>(null),
-  status: ref<HTMLDivElement | null>(null),
-  hourly: ref<HTMLDivElement | null>(null),
-}
+const trendChartRef = ref<HTMLDivElement | null>(null)
+const dishesChartRef = ref<HTMLDivElement | null>(null)
+const statusChartRef = ref<HTMLDivElement | null>(null)
+const hourlyChartRef = ref<HTMLDivElement | null>(null)
 
 const chartInstances: Record<string, echarts.ECharts | null> = {
   trend: null,
@@ -179,17 +177,17 @@ const dailyList = computed(() =>
 )
 
 function initCharts() {
-  if (chartRefs.trend.value && !chartInstances.trend) {
-    chartInstances.trend = echarts.init(chartRefs.trend.value)
+  if (trendChartRef.value && !chartInstances.trend) {
+    chartInstances.trend = echarts.init(trendChartRef.value)
   }
-  if (chartRefs.dishes.value && !chartInstances.dishes) {
-    chartInstances.dishes = echarts.init(chartRefs.dishes.value)
+  if (dishesChartRef.value && !chartInstances.dishes) {
+    chartInstances.dishes = echarts.init(dishesChartRef.value)
   }
-  if (chartRefs.status.value && !chartInstances.status) {
-    chartInstances.status = echarts.init(chartRefs.status.value)
+  if (statusChartRef.value && !chartInstances.status) {
+    chartInstances.status = echarts.init(statusChartRef.value)
   }
-  if (chartRefs.hourly.value && !chartInstances.hourly) {
-    chartInstances.hourly = echarts.init(chartRefs.hourly.value)
+  if (hourlyChartRef.value && !chartInstances.hourly) {
+    chartInstances.hourly = echarts.init(hourlyChartRef.value)
   }
   updateCharts()
 }
@@ -319,25 +317,25 @@ function updateCharts() {
       <!-- Trend -->
       <div class="bg-white rounded-lg shadow p-5">
         <h3 class="text-base font-semibold text-gray-800 mb-4">销售趋势（按日）</h3>
-        <div ref="chartRefs.trend" class="h-64 w-full"></div>
+        <div ref="trendChartRef" class="h-64 w-full"></div>
       </div>
 
       <!-- Hourly -->
       <div class="bg-white rounded-lg shadow p-5">
         <h3 class="text-base font-semibold text-gray-800 mb-4">24小时时段分布</h3>
-        <div ref="chartRefs.hourly" class="h-64 w-full"></div>
+        <div ref="hourlyChartRef" class="h-64 w-full"></div>
       </div>
 
       <!-- Top Dishes -->
       <div class="bg-white rounded-lg shadow p-5">
         <h3 class="text-base font-semibold text-gray-800 mb-4">热门菜品 TOP10</h3>
-        <div ref="chartRefs.dishes" class="h-64 w-full"></div>
+        <div ref="dishesChartRef" class="h-64 w-full"></div>
       </div>
 
       <!-- Status -->
       <div class="bg-white rounded-lg shadow p-5">
         <h3 class="text-base font-semibold text-gray-800 mb-4">订单状态分布</h3>
-        <div ref="chartRefs.status" class="h-64 w-full"></div>
+        <div ref="statusChartRef" class="h-64 w-full"></div>
       </div>
     </div>
 
