@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { OrderAPI, type Order } from '@/api/pocketbase'
 import { useSettingsStore } from '@/stores/settings.store'
 import { OrderStatus, StatusLabels, StatusFlow, StatusColors } from '@/utils/orderStatus'
 import { printBill, printKitchenTicket } from '@/utils/printBill'
+import { useToast } from '@/composables/useToast'
+import { globalConfirm } from '@/composables/useConfirm'
 
 const route = useRoute()
 const router = useRouter()
 const settingsStore = useSettingsStore()
+const toast = useToast()
 
 const orderId = route.params.orderId as string
 const order = ref<Order | null>(null)
@@ -47,25 +50,37 @@ function handlePrintKitchen() {
 async function updateStatus(newStatus: string) {
   if (!order.value) return
   const statusName = StatusLabels[newStatus as keyof typeof StatusLabels]
-  if (!confirm(`确定要将订单状态变更为"${statusName}"吗？`)) return
+  const ok = await globalConfirm.confirm({
+    title: '确认变更状态',
+    description: `确定要将订单状态变更为"${statusName}"吗？`,
+    confirmText: '确定变更',
+    type: newStatus === OrderStatus.CANCELLED ? 'danger' : 'default',
+  })
+  if (!ok) return
   try {
     await OrderAPI.updateOrderStatus(order.value.id, newStatus)
-    alert('状态更新成功！')
+    toast.success('状态更新成功！')
     await loadOrder()
   } catch (err: any) {
-    alert('更新失败: ' + err.message)
+    toast.error('更新失败: ' + err.message)
   }
 }
 
 async function deleteOrder() {
   if (!order.value) return
-  if (!confirm('确定要删除此订单吗？此操作不可恢复！')) return
+  const ok = await globalConfirm.confirm({
+    title: '确认删除订单',
+    description: '确定要删除此订单吗？此操作不可恢复！',
+    confirmText: '删除',
+    type: 'danger',
+  })
+  if (!ok) return
   try {
     await OrderAPI.deleteOrder(order.value.id)
-    alert('订单已删除！')
+    toast.success('订单已删除！')
     router.replace({ name: 'orderList' })
   } catch (err: any) {
-    alert('删除失败: ' + err.message)
+    toast.error('删除失败: ' + err.message)
   }
 }
 </script>
@@ -196,43 +211,47 @@ async function deleteOrder() {
         <div class="lg:col-span-2">
           <div class="bg-white rounded-lg shadow p-6">
             <h3 class="text-lg font-semibold text-gray-800 mb-4">订单明细</h3>
-            <table class="min-w-full divide-y divide-gray-200">
-              <thead class="bg-gray-50">
-                <tr>
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">菜品</th>
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">单价</th>
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">数量</th>
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">小计</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-gray-200">
-                <tr v-if="!order.items || order.items.length === 0">
-                  <td colspan="4" class="px-4 py-4 text-center text-gray-500">暂无菜品</td>
-                </tr>
-                <tr v-for="item in order.items" :key="item.dishId">
-                  <td class="px-4 py-3 text-sm text-gray-900">{{ item.name }}</td>
-                  <td class="px-4 py-3 text-sm text-gray-700">¥{{ item.price.toFixed(2) }}</td>
-                  <td class="px-4 py-3 text-sm text-gray-700">{{ item.quantity }}</td>
-                  <td class="px-4 py-3 text-sm text-gray-900">¥{{ (item.price * item.quantity).toFixed(2) }}</td>
-                </tr>
-              </tbody>
-              <tfoot class="bg-gray-50">
-                <tr>
-                  <td colspan="3" class="px-4 py-3 text-right text-sm font-medium text-gray-700">小计:</td>
-                  <td class="px-4 py-3 text-sm font-medium text-gray-900">¥{{ (order.totalAmount || 0).toFixed(2) }}</td>
-                </tr>
-                <tr v-if="order.discount">
-                  <td colspan="3" class="px-4 py-3 text-right text-sm font-medium text-gray-700">折扣:</td>
-                  <td class="px-4 py-3 text-sm font-medium text-gray-900">
-                    -¥{{ order.discount.toFixed(2) }}{{ order.discountType === 'percent' ? ` (${order.discountValue}折)` : '' }}
-                  </td>
-                </tr>
-                <tr>
-                  <td colspan="3" class="px-4 py-3 text-right text-sm font-bold text-gray-900">合计:</td>
-                  <td class="px-4 py-3 text-sm font-bold text-gray-900">¥{{ (order.finalAmount || order.totalAmount || 0).toFixed(2) }}</td>
-                </tr>
-              </tfoot>
-            </table>
+            <div class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">菜品</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">单价</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">数量</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">小计</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">备注</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                  <tr v-if="!order.items || order.items.length === 0">
+                    <td colspan="5" class="px-4 py-4 text-center text-gray-500">暂无菜品</td>
+                  </tr>
+                  <tr v-for="item in order.items" :key="item.dishId">
+                    <td class="px-4 py-3 text-sm text-gray-900">{{ item.name }}</td>
+                    <td class="px-4 py-3 text-sm text-gray-700">¥{{ item.price.toFixed(2) }}</td>
+                    <td class="px-4 py-3 text-sm text-gray-700">{{ item.quantity }}</td>
+                    <td class="px-4 py-3 text-sm text-gray-900">¥{{ (item.price * item.quantity).toFixed(2) }}</td>
+                    <td class="px-4 py-3 text-sm text-gray-500">{{ (item as any).remark || '-' }}</td>
+                  </tr>
+                </tbody>
+                <tfoot class="bg-gray-50">
+                  <tr>
+                    <td colspan="4" class="px-4 py-3 text-right text-sm font-medium text-gray-700">小计:</td>
+                    <td class="px-4 py-3 text-sm font-medium text-gray-900">¥{{ (order.totalAmount || 0).toFixed(2) }}</td>
+                  </tr>
+                  <tr v-if="order.discount">
+                    <td colspan="4" class="px-4 py-3 text-right text-sm font-medium text-gray-700">折扣:</td>
+                    <td class="px-4 py-3 text-sm font-medium text-gray-900">
+                      -¥{{ order.discount.toFixed(2) }}{{ order.discountType === 'percent' ? ` (${order.discountValue}折)` : '' }}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td colspan="4" class="px-4 py-3 text-right text-sm font-bold text-gray-900">合计:</td>
+                    <td class="px-4 py-3 text-sm font-bold text-gray-900">¥{{ (order.finalAmount || order.totalAmount || 0).toFixed(2) }}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </div>
 
           <!-- Remark -->

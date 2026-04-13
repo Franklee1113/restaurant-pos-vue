@@ -3,7 +3,10 @@ import { ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.store'
 import { useGlobalLoading } from '@/composables/useGlobalLoading'
+import { globalConfirm } from '@/composables/useConfirm'
 import AppLoading from '@/components/AppLoading.vue'
+import ToastContainer from '@/components/ToastContainer.vue'
+import DialogModal from '@/components/DialogModal.vue'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -22,6 +25,17 @@ const navItems = [
 <template>
   <div class="min-h-screen flex flex-col bg-gray-50">
     <AppLoading :visible="loadingVisible" :text="loadingText" />
+    <ToastContainer />
+    <DialogModal
+      :open="globalConfirm.open.value"
+      :title="globalConfirm.options.value.title"
+      :description="globalConfirm.options.value.description"
+      :confirm-text="globalConfirm.options.value.confirmText"
+      :cancel-text="globalConfirm.options.value.cancelText"
+      :type="globalConfirm.options.value.type"
+      @confirm="globalConfirm.onConfirm"
+      @cancel="globalConfirm.onCancel"
+    />
 
     <!-- Navigation -->
     <nav class="bg-white shadow-sm border-b border-gray-200">

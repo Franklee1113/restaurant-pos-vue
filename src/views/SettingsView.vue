@@ -2,9 +2,11 @@
 import { ref, onMounted, watch } from 'vue'
 import { useSettingsStore } from '@/stores/settings.store'
 import { settingsFormSchema } from '@/schemas/settings.schema'
+import { useToast } from '@/composables/useToast'
 import type { ZodError } from 'zod'
 
 const settingsStore = useSettingsStore()
+const toast = useToast()
 
 const restaurantName = ref('')
 const address = ref('')
@@ -79,10 +81,9 @@ async function save() {
       address: payload.address,
       phone: payload.phone,
     })
-    message.value = '设置保存成功！'
-    setTimeout(() => (message.value = ''), 3000)
+    toast.success('设置保存成功！')
   } catch (err: any) {
-    message.value = '保存失败: ' + (err.message || '未知错误')
+    toast.error('保存失败: ' + (err.message || '未知错误'))
   } finally {
     saving.value = false
   }

@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
+import * as echarts from 'echarts'
 import { OrderAPI } from '@/api/pocketbase'
 import { OrderStatus, StatusLabels, StatusColors } from '@/utils/orderStatus'
+import { useToast } from '@/composables/useToast'
+
+const toast = useToast()
 
 const orders = ref<any[]>([])
 const loading = ref(false)
@@ -9,10 +13,31 @@ const dateRange = ref('week')
 const startDate = ref('')
 const endDate = ref('')
 
+const chartRefs = {
+  trend: ref<HTMLDivElement | null>(null),
+  dishes: ref<HTMLDivElement | null>(null),
+  status: ref<HTMLDivElement | null>(null),
+  hourly: ref<HTMLDivElement | null>(null),
+}
+
+const chartInstances: Record<string, echarts.ECharts | null> = {
+  trend: null,
+  dishes: null,
+  status: null,
+  hourly: null,
+}
+
 onMounted(() => {
   setDefaultDateRange()
-  loadData()
+  loadData().then(() => {
+    nextTick(initCharts)
+  })
+  window.addEventListener('resize', resizeCharts)
 })
+
+function resizeCharts() {
+  Object.values(chartInstances).forEach((inst) => inst?.resize())
+}
 
 function setDefaultDateRange() {
   const now = new Date()
@@ -50,8 +75,9 @@ async function loadData() {
     const filter = filters.join(' && ')
     const res = await OrderAPI.getOrders(1, 500, filter)
     orders.value = res.items
+    nextTick(updateCharts)
   } catch (err: any) {
-    alert('加载数据失败: ' + err.message)
+    toast.error('加载数据失败: ' + err.message)
   } finally {
     loading.value = false
   }
@@ -151,7 +177,89 @@ const dailyList = computed(() =>
     .filter((x): x is { date: string; revenue: number; count: number } => !!x)
     .sort((a, b) => a.date.localeCompare(b.date)),
 )
-const activeHours = computed(() => [9, 10, 11, 12, 13, 14, 17, 18, 19, 20, 21])
+
+function initCharts() {
+  if (chartRefs.trend.value && !chartInstances.trend) {
+    chartInstances.trend = echarts.init(chartRefs.trend.value)
+  }
+  if (chartRefs.dishes.value && !chartInstances.dishes) {
+    chartInstances.dishes = echarts.init(chartRefs.dishes.value)
+  }
+  if (chartRefs.status.value && !chartInstances.status) {
+    chartInstances.status = echarts.init(chartRefs.status.value)
+  }
+  if (chartRefs.hourly.value && !chartInstances.hourly) {
+    chartInstances.hourly = echarts.init(chartRefs.hourly.value)
+  }
+  updateCharts()
+}
+
+function updateCharts() {
+  // Trend chart
+  if (chartInstances.trend) {
+    const dates = dailyList.value.map((d) => d.date.slice(5))
+    const revenues = dailyList.value.map((d) => +d.revenue.toFixed(2))
+    const counts = dailyList.value.map((d) => d.count)
+    chartInstances.trend.setOption({
+      tooltip: { trigger: 'axis' },
+      legend: { data: ['营业额', '订单数'], bottom: 0 },
+      grid: { left: '3%', right: '4%', bottom: '15%', top: '10%', containLabel: true },
+      xAxis: { type: 'category', data: dates },
+      yAxis: [
+        { type: 'value', name: '营业额', axisLabel: { formatter: '{value}' } },
+        { type: 'value', name: '订单数', minInterval: 1 },
+      ],
+      series: [
+        { name: '营业额', type: 'line', smooth: true, data: revenues, itemStyle: { color: '#6366f1' }, areaStyle: { opacity: 0.1 } },
+        { name: '订单数', type: 'bar', yAxisIndex: 1, data: counts, itemStyle: { color: '#10b981' } },
+      ],
+    })
+  }
+
+  // Dishes chart
+  if (chartInstances.dishes) {
+    const dishes = topDishes.value.slice().reverse()
+    chartInstances.dishes.setOption({
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      grid: { left: '3%', right: '4%', bottom: '3%', top: '3%', containLabel: true },
+      xAxis: { type: 'value' },
+      yAxis: { type: 'category', data: dishes.map((d) => d.name) },
+      series: [{ type: 'bar', data: dishes.map((d) => d.quantity), itemStyle: { color: '#f59e0b', borderRadius: [0, 4, 4, 0] } }],
+    })
+  }
+
+  // Status chart
+  if (chartInstances.status) {
+    chartInstances.status.setOption({
+      tooltip: { trigger: 'item' },
+      legend: { bottom: 0 },
+      series: [
+        {
+          type: 'pie',
+          radius: ['40%', '70%'],
+          avoidLabelOverlap: false,
+          itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
+          label: { show: false },
+          emphasis: { label: { show: true, fontSize: 14, fontWeight: 'bold' } },
+          data: statusList.value.map((s) => ({ value: s.count, name: s.label, itemStyle: { color: s.color } })),
+        },
+      ],
+    })
+  }
+
+  // Hourly chart
+  if (chartInstances.hourly) {
+    const hours = Array.from({ length: 24 }, (_, i) => `${i}时`)
+    const counts = stats.value.hourlyStats.map((h) => h.count)
+    chartInstances.hourly.setOption({
+      tooltip: { trigger: 'axis' },
+      grid: { left: '3%', right: '4%', bottom: '10%', top: '10%', containLabel: true },
+      xAxis: { type: 'category', data: hours },
+      yAxis: { type: 'value', minInterval: 1 },
+      series: [{ type: 'bar', data: counts, itemStyle: { color: '#3b82f6', borderRadius: [4, 4, 0, 0] } }],
+    })
+  }
+}
 </script>
 
 <template>
@@ -211,72 +319,25 @@ const activeHours = computed(() => [9, 10, 11, 12, 13, 14, 17, 18, 19, 20, 21])
       <!-- Trend -->
       <div class="bg-white rounded-lg shadow p-5">
         <h3 class="text-base font-semibold text-gray-800 mb-4">销售趋势（按日）</h3>
-        <div v-if="dailyList.length === 0" class="text-center text-gray-500 py-8">暂无数据</div>
-        <table v-else class="min-w-full text-sm">
-          <thead class="bg-gray-50">
-            <tr><th class="px-3 py-2 text-left">日期</th><th class="px-3 py-2 text-left">订单数</th><th class="px-3 py-2 text-left">营业额</th></tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100">
-            <tr v-for="d in dailyList" :key="d.date">
-              <td class="px-3 py-2">{{ d.date }}</td>
-              <td class="px-3 py-2">{{ d.count }}</td>
-              <td class="px-3 py-2 font-medium">¥{{ d.revenue.toFixed(2) }}</td>
-            </tr>
-          </tbody>
-        </table>
+        <div ref="chartRefs.trend" class="h-64 w-full"></div>
       </div>
 
       <!-- Hourly -->
       <div class="bg-white rounded-lg shadow p-5">
-        <h3 class="text-base font-semibold text-gray-800 mb-4">用餐时段分布</h3>
-        <div class="h-48 flex items-end gap-2">
-          <div v-for="h in activeHours" :key="h" class="flex-1 flex flex-col items-center gap-1">
-            <div class="text-xs text-gray-600">{{ stats.hourlyStats[h]!.count }}</div>
-            <div
-              class="w-full bg-blue-400 rounded-t"
-              :style="{ height: Math.max(4, (stats.hourlyStats[h]!.count / Math.max(1, ...activeHours.map(x => stats.hourlyStats[x]!.count))) * 140) + 'px' }"
-              :title="`${h}:00 营业额 ¥${stats.hourlyStats[h]!.revenue.toFixed(2)}`"
-            />
-            <div class="text-xs text-gray-400">{{ h }}时</div>
-          </div>
-        </div>
+        <h3 class="text-base font-semibold text-gray-800 mb-4">24小时时段分布</h3>
+        <div ref="chartRefs.hourly" class="h-64 w-full"></div>
       </div>
 
       <!-- Top Dishes -->
       <div class="bg-white rounded-lg shadow p-5">
         <h3 class="text-base font-semibold text-gray-800 mb-4">热门菜品 TOP10</h3>
-        <div v-if="topDishes.length === 0" class="text-center text-gray-500 py-8">暂无数据</div>
-        <div v-else class="space-y-3 max-h-64 overflow-y-auto pr-1">
-          <div v-for="(dish, idx) in topDishes" :key="dish.name" class="flex items-center gap-3">
-            <div class="w-5 text-center font-bold" :class="idx < 3 ? 'text-red-500' : 'text-gray-400'">{{ idx + 1 }}</div>
-            <div class="flex-1">
-              <div class="flex justify-between text-sm mb-1">
-                <span class="text-gray-800">{{ dish.name }}</span>
-                <span class="text-gray-500">{{ dish.quantity }}份</span>
-              </div>
-              <div class="h-1.5 bg-gray-100 rounded overflow-hidden">
-                <div
-                  class="h-full rounded"
-                  :style="{ width: (dish.quantity / (topDishes[0]?.quantity || 1) * 100) + '%', backgroundColor: ['#ff4d4f','#ff7a45','#ffa940','#ffc53d','#73d13d','#36cfc9','#40a9ff','#597ef7','#9254de','#f759ab'][idx] || '#1890ff' }"
-                />
-              </div>
-            </div>
-            <div class="w-16 text-right text-xs text-gray-400">¥{{ dish.revenue.toFixed(0) }}</div>
-          </div>
-        </div>
+        <div ref="chartRefs.dishes" class="h-64 w-full"></div>
       </div>
 
       <!-- Status -->
       <div class="bg-white rounded-lg shadow p-5">
         <h3 class="text-base font-semibold text-gray-800 mb-4">订单状态分布</h3>
-        <div v-if="statusList.length === 0" class="text-center text-gray-500 py-8">暂无数据</div>
-        <div v-else class="space-y-3">
-          <div v-for="s in statusList" :key="s.label" class="flex items-center gap-3">
-            <div class="w-3 h-3 rounded-sm" :style="{ backgroundColor: s.color }" />
-            <span class="flex-1 text-sm text-gray-600">{{ s.label }}</span>
-            <span class="text-sm font-medium text-gray-800">{{ s.count }}</span>
-          </div>
-        </div>
+        <div ref="chartRefs.status" class="h-64 w-full"></div>
       </div>
     </div>
 

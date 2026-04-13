@@ -2,11 +2,13 @@
 import { ref, computed, onMounted } from 'vue'
 import { DishAPI, type Dish } from '@/api/pocketbase'
 import { useSettingsStore } from '@/stores/settings.store'
-import { escapeHtml } from '@/utils/security'
 import { dishFormSchema } from '@/schemas/dish.schema'
+import { useToast } from '@/composables/useToast'
+import { globalConfirm } from '@/composables/useConfirm'
 import type { ZodError } from 'zod'
 
 const settingsStore = useSettingsStore()
+const toast = useToast()
 
 const dishes = ref<Dish[]>([])
 const loading = ref(false)
@@ -37,7 +39,7 @@ async function loadDishes() {
     const res = await DishAPI.getDishes()
     dishes.value = res.items
   } catch (err: any) {
-    alert('加载菜品失败: ' + err.message)
+    toast.error('加载菜品失败: ' + err.message)
   } finally {
     loading.value = false
   }
@@ -86,26 +88,32 @@ async function saveDish() {
     const data = { ...form.value }
     if (editingDish.value) {
       await DishAPI.updateDish(editingDish.value.id, data)
-      alert('菜品更新成功！')
+      toast.success('菜品更新成功！')
     } else {
       await DishAPI.createDish(data)
-      alert('菜品添加成功！')
+      toast.success('菜品添加成功！')
     }
     closeModal()
     await loadDishes()
   } catch (err: any) {
-    alert('保存失败: ' + err.message)
+    toast.error('保存失败: ' + err.message)
   }
 }
 
 async function deleteDish(dish: Dish) {
-  if (!confirm(`确定要删除菜品 "${dish.name}" 吗？`)) return
+  const ok = await globalConfirm.confirm({
+    title: '确认删除菜品',
+    description: `确定要删除菜品 "${dish.name}" 吗？`,
+    confirmText: '删除',
+    type: 'danger',
+  })
+  if (!ok) return
   try {
     await DishAPI.deleteDish(dish.id)
-    alert('删除成功！')
+    toast.success('删除成功！')
     await loadDishes()
   } catch (err: any) {
-    alert('删除失败: ' + err.message)
+    toast.error('删除失败: ' + err.message)
   }
 }
 </script>

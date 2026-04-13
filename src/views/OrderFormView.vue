@@ -6,10 +6,12 @@ import { useSettingsStore } from '@/stores/settings.store'
 import { OrderStatus, generateOrderNo } from '@/utils/orderStatus'
 import { MoneyCalculator, Validators } from '@/utils/security'
 import { orderFormSchema } from '@/schemas/order.schema'
+import { useToast } from '@/composables/useToast'
 
 const route = useRoute()
 const router = useRouter()
 const settingsStore = useSettingsStore()
+const toast = useToast()
 
 const isEdit = computed(() => route.name === 'editOrder')
 const orderId = computed(() => route.params.orderId as string)
@@ -21,7 +23,11 @@ const tableNo = ref('')
 const guests = ref(4)
 const discountType = ref<'amount' | 'percent'>('amount')
 const discountValue = ref(0)
-const cart = ref<Array<{ dishId: string; name: string; price: number; quantity: number }>>([])
+const remark = ref('')
+const cart = ref<Array<{ dishId: string; name: string; price: number; quantity: number; remark?: string }>>([])
+const editingQtyId = ref<string | null>(null)
+const editingQtyValue = ref<number>(1)
+const editingRemarkId = ref<string | null>(null)
 
 const DISH_RULES: Record<string, { add: string; qty: number }> = {
   '铁锅鱼': { add: '锅底', qty: 1 },
@@ -69,15 +75,17 @@ async function loadData() {
       guests.value = order.guests || 4
       discountType.value = (order.discountType as any) || 'amount'
       discountValue.value = order.discountValue || 0
+      remark.value = (order as any).remark || ''
       cart.value = (order.items || []).map((item) => ({
         dishId: item.dishId,
         name: item.name,
         price: item.price,
         quantity: item.quantity,
+        remark: (item as any).remark || '',
       }))
     }
   } catch (err: any) {
-    alert('加载数据失败: ' + err.message)
+    toast.error('加载数据失败: ' + err.message)
   } finally {
     loading.value = false
   }
@@ -88,7 +96,7 @@ function addToCart(dish: Dish) {
   if (existing) {
     existing.quantity = Math.round((existing.quantity + 1) * 10) / 10
   } else {
-    cart.value.push({ dishId: dish.id, name: dish.name, price: dish.price, quantity: 1 })
+    cart.value.push({ dishId: dish.id, name: dish.name, price: dish.price, quantity: 1, remark: '' })
   }
 
   // 自动加锅底
@@ -98,8 +106,8 @@ function addToCart(dish: Dish) {
     if (!existingAddOn) {
       const addOn = dishes.value.find((d) => d.name === rule.add)
       if (addOn) {
-        cart.value.push({ dishId: addOn.id, name: addOn.name, price: addOn.price, quantity: rule.qty })
-        alert(`已自动添加 ${rule.add} ${rule.qty}份`)
+        cart.value.push({ dishId: addOn.id, name: addOn.name, price: addOn.price, quantity: rule.qty, remark: '' })
+        toast.info(`已自动添加 ${rule.add} ${rule.qty}份`)
       }
     }
   }
@@ -116,21 +124,28 @@ function updateQty(dishId: string, delta: number) {
   if (item.quantity <= 0) removeFromCart(dishId)
 }
 
-function setQty(dishId: string) {
+function startEditQty(dishId: string) {
   const item = cart.value.find((i) => i.dishId === dishId)
   if (!item) return
-  const raw = prompt('输入数量:', String(item.quantity))
-  if (raw === null) return
-  const val = parseFloat(raw)
+  editingQtyId.value = dishId
+  editingQtyValue.value = item.quantity
+}
+
+function confirmEditQty() {
+  if (!editingQtyId.value) return
+  const val = parseFloat(String(editingQtyValue.value))
   if (isNaN(val) || val <= 0) {
-    removeFromCart(dishId)
+    removeFromCart(editingQtyId.value)
+    editingQtyId.value = null
     return
   }
   if (!Validators.quantity(val)) {
-    alert('数量不合法')
+    toast.error('数量不合法')
     return
   }
-  item.quantity = Math.round(val * 10) / 10
+  const item = cart.value.find((i) => i.dishId === editingQtyId.value)
+  if (item) item.quantity = Math.round(val * 10) / 10
+  editingQtyId.value = null
 }
 
 function onDiscountTypeChange() {
@@ -171,7 +186,6 @@ async function submit() {
         formErrors.value[key] = issue.message
       }
     })
-    // 额外校验折扣比例
     if (payload.discountType === 'percent' && (payload.discountValue <= 0 || payload.discountValue > 10)) {
       formErrors.value.discountValue = '折扣比例应在0.1-10之间，如8代表8折'
     }
@@ -179,7 +193,7 @@ async function submit() {
   }
 
   if (!Validators.amount(total) || !Validators.amount(final)) {
-    alert('订单金额异常，请检查')
+    toast.error('订单金额异常，请检查')
     return
   }
 
@@ -191,29 +205,31 @@ async function submit() {
       name: Validators.sanitizeString(item.name, 100),
       price: item.price,
       quantity: item.quantity,
+      remark: item.remark,
     })),
     totalAmount: total,
     discount,
     discountType: discountType.value,
     discountValue: discountValue.value,
     finalAmount: final,
+    remark: remark.value,
   }
 
   try {
     if (isEdit.value && orderId.value) {
       await OrderAPI.updateOrder(orderId.value, orderData)
-      alert('订单修改成功!')
+      toast.success('订单修改成功!')
       router.push({ name: 'orderList' })
     } else {
       orderData.orderNo = generateOrderNo()
       orderData.status = OrderStatus.PENDING
       await OrderAPI.createOrder(orderData)
-      alert('订单创建成功!')
+      toast.success('订单创建成功!')
       cart.value = []
       router.push({ name: 'orderList' })
     }
   } catch (err: any) {
-    alert((isEdit.value ? '保存' : '创建') + '失败: ' + err.message)
+    toast.error((isEdit.value ? '保存' : '创建') + '失败: ' + err.message)
   }
 }
 </script>
@@ -268,6 +284,17 @@ async function submit() {
           <div class="text-sm text-gray-500">[状态请在详情页修改]</div>
         </div>
 
+        <!-- Remark -->
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-600 mb-1">整单备注</label>
+          <textarea
+            v-model="remark"
+            rows="2"
+            placeholder="例如：少辣、不要葱、生日庆祝等"
+            class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
         <!-- Categories -->
         <div class="flex gap-2 overflow-x-auto pb-2 mb-4 border-b border-gray-100">
           <button
@@ -319,21 +346,62 @@ async function submit() {
           <div
             v-for="item in cart"
             :key="item.dishId"
-            class="flex items-center justify-between gap-2 py-2 border-b border-gray-50 last:border-0"
+            class="py-2 border-b border-gray-50 last:border-0"
           >
-            <div class="flex-1 min-w-0">
-              <div class="font-medium text-sm text-gray-800 truncate">{{ item.name }}</div>
-              <div class="text-xs text-gray-400">{{ MoneyCalculator.format(item.price) }}</div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex-1 min-w-0">
+                <div class="font-medium text-sm text-gray-800 truncate">{{ item.name }}</div>
+                <div class="text-xs text-gray-400">{{ MoneyCalculator.format(item.price) }}</div>
+              </div>
+              <div class="flex items-center gap-1">
+                <button class="w-7 h-7 rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50" @click="updateQty(item.dishId, -0.5)">-</button>
+                <div
+                  v-if="editingQtyId === item.dishId"
+                  class="flex items-center gap-1"
+                >
+                  <input
+                    v-model.number="editingQtyValue"
+                    type="number"
+                    min="0.5"
+                    step="0.5"
+                    class="w-14 px-1 py-1 border border-blue-400 rounded text-sm text-center"
+                    @blur="confirmEditQty"
+                    @keyup.enter="confirmEditQty"
+                  />
+                </div>
+                <div
+                  v-else
+                  class="min-w-[40px] text-center text-sm font-semibold cursor-pointer bg-gray-50 rounded px-2 py-1"
+                  @click="startEditQty(item.dishId)"
+                >
+                  {{ item.quantity }}
+                </div>
+                <button class="w-7 h-7 rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50" @click="updateQty(item.dishId, 0.5)">+</button>
+              </div>
+              <div class="w-16 text-right text-sm font-medium text-red-500">
+                {{ MoneyCalculator.format(MoneyCalculator.calculate([item], 0).final) }}
+              </div>
+              <button class="w-7 h-7 rounded bg-red-50 text-red-500 hover:bg-red-100 flex items-center justify-center" @click="removeFromCart(item.dishId)">×</button>
             </div>
-            <div class="flex items-center gap-1">
-              <button class="w-7 h-7 rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50" @click="updateQty(item.dishId, -0.5)">-</button>
-              <div class="min-w-[40px] text-center text-sm font-semibold cursor-pointer bg-gray-50 rounded px-2 py-1" @click="setQty(item.dishId)">{{ item.quantity }}</div>
-              <button class="w-7 h-7 rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50" @click="updateQty(item.dishId, 0.5)">+</button>
+            <!-- Item remark -->
+            <div class="mt-2 flex items-center gap-2">
+              <input
+                v-if="editingRemarkId === item.dishId"
+                v-model="item.remark"
+                type="text"
+                placeholder="口味备注"
+                class="flex-1 px-2 py-1 text-xs border border-blue-400 rounded"
+                @blur="editingRemarkId = null"
+                @keyup.enter="editingRemarkId = null"
+              />
+              <button
+                v-else
+                class="text-xs text-blue-600 hover:text-blue-800"
+                @click="editingRemarkId = item.dishId"
+              >
+                {{ item.remark ? `备注: ${item.remark}` : '+ 备注' }}
+              </button>
             </div>
-            <div class="w-16 text-right text-sm font-medium text-red-500">
-              {{ MoneyCalculator.format(MoneyCalculator.calculate([item], 0).final) }}
-            </div>
-            <button class="w-7 h-7 rounded bg-red-50 text-red-500 hover:bg-red-100 flex items-center justify-center" @click="removeFromCart(item.dishId)">×</button>
           </div>
         </div>
 
