@@ -47,10 +47,30 @@ jobs:
       - name: Run unit tests
         run: npm run test:unit
 
+  docs-sync-check:
+    name: Docs Sync Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check docs updated with code changes
+        run: |
+          CODE_CHANGES=$(git diff --name-only origin/main...HEAD | grep -E '^(src/|public/|tests?/|scripts/|\.github/workflows/|vite\.config\.|package\.json|tsconfig\.)' || true)
+          DOC_CHANGES=$(git diff --name-only origin/main...HEAD | grep -E '(^docs/CODE_CHECKLIST\.md|^docs/智能点菜系统-详细设计说明书\.md|^AGENTS\.md|^docs/.*\.md)' || true)
+          if [ -n "$CODE_CHANGES" ] && [ -z "$DOC_CHANGES" ]; then
+            echo "❌ 代码变更未同步更新文档，请检查 AGENTS.md 中的文档同步规则"
+            echo "代码变更:"
+            echo "$CODE_CHANGES"
+            exit 1
+          fi
+          echo "✅ 文档同步检查通过"
+
   build:
     name: Production Build
     runs-on: ubuntu-latest
-    needs: [lint-and-type-check, unit-tests]
+    needs: [lint-and-type-check, unit-tests, docs-sync-check]
     steps:
       - uses: actions/checkout@v4
 

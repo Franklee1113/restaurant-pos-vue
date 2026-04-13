@@ -12,6 +12,12 @@ const router = createRouter({
       meta: { public: true },
     },
     {
+      path: '/kitchen',
+      name: 'kitchen',
+      component: () => import('@/views/KitchenDisplayView.vue'),
+      meta: { public: true },
+    },
+    {
       path: '/',
       component: MainLayout,
       children: [

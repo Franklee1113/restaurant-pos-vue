@@ -58,18 +58,24 @@ function onDateRangeChange() {
       startDate.value = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]!
       break
   }
+  loadData()
 }
 
 function onCustomDateChange() {
   dateRange.value = 'custom'
+  loadData()
+}
+
+function toUTCDateTime(dateStr: string, timeStr: string) {
+  return new Date(`${dateStr}T${timeStr}`).toISOString()
 }
 
 async function loadData() {
   loading.value = true
   try {
     const filters: string[] = []
-    if (startDate.value) filters.push(`created >= "${startDate.value}T00:00:00.000Z"`)
-    if (endDate.value) filters.push(`created <= "${endDate.value}T23:59:59.999Z"`)
+    if (startDate.value) filters.push(`created >= "${toUTCDateTime(startDate.value, '00:00:00')}"`)
+    if (endDate.value) filters.push(`created <= "${toUTCDateTime(endDate.value, '23:59:59.999')}"`)
     const filter = filters.join(' && ')
     const res = await OrderAPI.getOrders(1, 500, filter)
     orders.value = res.items
@@ -106,7 +112,7 @@ const stats = computed(() => {
   })
 
   orders.value.forEach((order) => {
-    const dateKey = order.created.split('T')[0]!
+    const dateKey = new Date(order.created).toISOString().split('T')[0]!
     const hour = new Date(order.created).getHours()
     const amount = order.totalAmount || 0
 
