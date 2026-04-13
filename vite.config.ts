@@ -17,4 +17,19 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     },
   },
+  build: {
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/echarts')) {
+            return 'vendor-echarts'
+          }
+          if (id.includes('node_modules/xlsx')) {
+            return 'vendor-xlsx'
+          }
+        },
+      },
+    },
+  },
 })
