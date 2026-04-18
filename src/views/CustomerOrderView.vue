@@ -280,7 +280,7 @@ async function submitOrder() {
             <div class="flex h-10 w-10 items-center justify-center rounded-full bg-orange-50 text-xl">👥</div>
             <div>
               <div class="text-xs text-gray-500">用餐人数</div>
-              <div class="text-sm font-semibold text-gray-900">{{ guests }} 人</div>
+              <div class="text-lg font-bold text-orange-600">{{ guests }}<span class="ml-0.5 text-sm font-medium text-gray-500">人</span></div>
             </div>
           </div>
           <div class="flex items-center gap-2">
