@@ -415,7 +415,7 @@ async function submitOrder() {
         </div>
         <div class="min-w-0 flex-1 cursor-pointer" @click="showCart = true">
           <div class="text-lg font-bold">
-            {{ MoneyCalculator.format(cartTotalAmount + cutleryTotal) }}
+            {{ MoneyCalculator.format(cartTotalQty > 0 ? cartTotalAmount + cutleryTotal : 0) }}
           </div>
           <div class="text-[10px] text-gray-400">
             {{ cartTotalQty > 0 ? `已选 ${cartTotalQty} 件${cutleryTotal > 0 ? '，含餐具费' : tablewareDish ? '，免餐具费' : ''}` : (existingItems.length > 0 ? '已有订单，可继续加菜' : '购物车是空的') }}
@@ -506,10 +506,6 @@ async function submitOrder() {
                   </button>
                 </div>
               </div>
-            </div>
-            <div class="mt-2 flex items-center justify-between text-sm">
-              <span class="text-gray-400">已下单合计</span>
-              <span class="font-semibold text-gray-700">{{ MoneyCalculator.format(existingTotalAmount) }}</span>
             </div>
           </div>
 
