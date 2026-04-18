@@ -266,6 +266,10 @@ export const OrderAPI = {
       if (existing) {
         existing.quantity = Math.round((existing.quantity + item.quantity) * 10) / 10
         if (item.remark) existing.remark = item.remark
+        // 追加的菜品需要重新制作，状态重置为 pending
+        if (existing.status && existing.status !== 'pending') {
+          existing.status = 'pending'
+        }
       } else {
         mergedItems.push({ ...item })
       }

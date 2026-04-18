@@ -118,6 +118,12 @@ onRecordBeforeUpdateRequest(
 
       const oldStatus = original.get('status')
 
+      // 检测是否有新菜品追加
+      let itemsAppended = false
+      if (newItems.length > oldItems.length) {
+        itemsAppended = true
+      }
+
       // 检测是否仅菜品状态发生变化
       let itemStatusChanged = false
       if (oldItems.length === newItems.length && newItems.length > 0) {
@@ -129,9 +135,44 @@ onRecordBeforeUpdateRequest(
         }
         if (diffCount > 0) {
           itemStatusChanged = true
-          if (oldStatus === 'completed' || oldStatus === 'cancelled') {
+          // 追加菜品导致的状态回退允许修改
+          if (!itemsAppended && (oldStatus === 'completed' || oldStatus === 'cancelled')) {
             throw new Error('订单已结束，不能修改菜品状态')
           }
+        }
+      }
+
+      // 如果有新菜品追加到已结束订单，重置为 pending 并重新开台
+      if (itemsAppended && (oldStatus === 'completed' || oldStatus === 'serving')) {
+        record.set('status', 'pending')
+        try {
+          const tableNo = record.get('tableNo')
+          if (tableNo) {
+            const records = $app.dao().findRecordsByFilter(
+              'table_status',
+              'tableNo = {:tableNo}',
+              '',
+              1,
+              0,
+              { tableNo: tableNo },
+            )
+            if (records && records.length > 0) {
+              const ts = records[0]
+              ts.set('status', 'dining')
+              ts.set('currentOrderId', record.id)
+              $app.dao().saveRecord(ts)
+            } else {
+              const collection = $app.dao().findCollectionByNameOrId('table_status')
+              const ts = new Record(collection)
+              ts.set('tableNo', tableNo)
+              ts.set('status', 'dining')
+              ts.set('currentOrderId', record.id)
+              ts.set('openedAt', new Date().toISOString())
+              $app.dao().saveRecord(ts)
+            }
+          }
+        } catch (err) {
+          console.log('table_status re-open error:', err)
         }
       }
 
@@ -213,7 +254,7 @@ onRecordBeforeUpdateRequest(
             pending: ['cooking', 'cancelled'],
             cooking: ['serving', 'cancelled'],
             serving: ['completed'],
-            completed: [],
+            completed: ['pending'],
             cancelled: [],
           }
           if ((flow[oldStatus] || []).indexOf(inferred) === -1) {
