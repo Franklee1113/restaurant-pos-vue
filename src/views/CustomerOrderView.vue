@@ -485,10 +485,10 @@ async function submitOrder() {
         </div>
         <div class="min-w-0 flex-1 cursor-pointer" @click="showCart = true">
           <div class="text-lg font-bold">
-            {{ MoneyCalculator.format(cartTotalQty > 0 ? cartTotalAmount + cutleryTotal : 0) }}
+            {{ MoneyCalculator.format(cartTotalQty > 0 ? (currentOrder ? cartTotalAmount : cartTotalAmount + cutleryTotal) : 0) }}
           </div>
           <div class="text-[10px] text-gray-400">
-            {{ cartTotalQty > 0 ? `已选 ${cartTotalQty} 件${cutleryTotal > 0 ? '，含餐具费' : tablewareDish ? '，免餐具费' : ''}` : (existingItems.length > 0 ? `已下单 ${existingItems.length} 道菜 · 点击加菜` : '购物车是空的') }}
+            {{ cartTotalQty > 0 ? `已选 ${cartTotalQty} 件${currentOrder ? '' : (cutleryTotal > 0 ? '，含餐具费' : tablewareDish ? '，免餐具费' : '')}` : (existingItems.length > 0 ? `已下单 ${existingItems.length} 道菜 · 点击加菜` : '购物车是空的') }}
           </div>
         </div>
         <button
