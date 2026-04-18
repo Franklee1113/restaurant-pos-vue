@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { DishAPI, PublicOrderAPI, TableStatusAPI, type Dish, type OrderItem, type Order, type TableStatus } from '@/api/pocketbase'
 import { OrderStatus, generateOrderNo } from '@/utils/orderStatus'
@@ -23,6 +23,10 @@ const guests = ref(1)
 const orderRemark = ref('')
 const tablewareDish = ref<Dish | null>(null)
 const categoryRefs = ref<Record<string, HTMLElement>>({})
+const showSuccess = ref(false)
+const successOrderNo = ref('')
+const dishesContainer = ref<HTMLElement | null>(null)
+const showBackToTop = ref(false)
 
 const categoryOrder = ['铁锅炖', '特色菜', '农家小炒', '凉菜', '特色豆腐', '主食', '酒水']
 
@@ -94,6 +98,21 @@ function setCategoryRef(el: unknown, cat: string) {
     delete categoryRefs.value[cat]
   }
 }
+
+function onDishesScroll() {
+  showBackToTop.value = (dishesContainer.value?.scrollTop || 0) > 300
+}
+
+function scrollToTop() {
+  dishesContainer.value?.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+watch(showCart, (val) => {
+  if (val) {
+    showSuccess.value = false
+    successOrderNo.value = ''
+  }
+})
 
 function scrollCategoryIntoView(cat: string) {
   nextTick(() => {
@@ -172,6 +191,8 @@ async function submitOrder() {
     if (currentOrder.value) {
       await PublicOrderAPI.appendOrderItems(currentOrder.value.id, items)
       toast.success('已追加到当前订单')
+    successOrderNo.value = currentOrder.value.orderNo
+    showSuccess.value = true
     } else {
       const { total, discount, final } = MoneyCalculator.calculateWithDiscount(
         items.map((i) => ({ price: i.price, quantity: i.quantity })),
@@ -210,13 +231,19 @@ async function submitOrder() {
       }
       const order = await PublicOrderAPI.createOrder(orderData)
       currentOrder.value = order
+      successOrderNo.value = order.orderNo
 
       // table_status 同步已由后端钩子自动处理
       toast.success('订单提交成功！')
+      showSuccess.value = true
     }
     clearCart()
     orderRemark.value = ''
-    showCart.value = false
+    setTimeout(() => {
+      showCart.value = false
+      showSuccess.value = false
+      successOrderNo.value = ''
+    }, 2000)
     await loadData()
   } catch (err: unknown) {
     toast.error('提交失败: ' + (err instanceof Error ? err.message : '未知错误'))
@@ -260,6 +287,7 @@ async function submitOrder() {
             <button
               :disabled="!!currentOrder"
               class="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-700 transition active:scale-95 disabled:opacity-40"
+              aria-label="减少人数"
               @click="guests = Math.max(1, guests - 1)"
             >
               <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -270,6 +298,7 @@ async function submitOrder() {
             <button
               :disabled="!!currentOrder"
               class="flex h-8 w-8 items-center justify-center rounded-full bg-orange-500 text-white shadow-md shadow-orange-500/30 transition active:scale-95 disabled:opacity-40"
+              aria-label="增加人数"
               @click="guests++"
             >
               <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -277,6 +306,9 @@ async function submitOrder() {
               </svg>
             </button>
           </div>
+        </div>
+        <div v-if="currentOrder" class="mt-2 text-[10px] text-gray-400">
+          人数已与订单绑定，不可修改
         </div>
 
         <!-- Existing order hint -->
@@ -318,7 +350,7 @@ async function submitOrder() {
       </div>
 
       <!-- Right dishes -->
-      <div class="flex-1 overflow-y-auto rounded-2xl pb-4">
+      <div ref="dishesContainer" class="relative flex-1 overflow-y-auto rounded-2xl pb-4" @scroll="onDishesScroll">
         <div v-if="loading" class="space-y-3">
           <div v-for="i in 6" :key="i" class="flex items-center gap-3 rounded-2xl bg-white p-3 shadow-sm">
             <div class="h-16 w-16 shrink-0 rounded-xl bg-gray-200 animate-pulse" />
@@ -370,6 +402,7 @@ async function submitOrder() {
               <div v-if="cartMap.get(dish.id)" class="flex items-center gap-2">
                 <button
                   class="flex h-7 w-7 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 shadow-sm transition active:scale-90 hover:bg-gray-50"
+                  aria-label="减少数量"
                   @click="updateQty(dish.id, -1)"
                 >
                   <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -381,6 +414,7 @@ async function submitOrder() {
                 </span>
                 <button
                   class="flex h-7 w-7 items-center justify-center rounded-full bg-orange-500 text-white shadow-md shadow-orange-500/30 transition active:scale-90 hover:bg-orange-600"
+                  aria-label="增加数量"
                   @click="addToCart(dish)"
                 >
                   <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -391,6 +425,7 @@ async function submitOrder() {
               <button
                 v-else
                 class="flex h-8 items-center gap-1 rounded-full bg-orange-500 px-3 text-sm font-medium text-white shadow-md shadow-orange-500/30 transition active:scale-95 hover:bg-orange-600"
+                :aria-label="`选择${dish.name}`"
                 @click="addToCart(dish)"
               >
                 <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -401,13 +436,34 @@ async function submitOrder() {
             </div>
           </div>
         </div>
+
+        <!-- Back to top -->
+        <Transition
+          enter-active-class="transition duration-300 ease-out"
+          enter-from-class="opacity-0 translate-y-2"
+          enter-to-class="opacity-100 translate-y-0"
+          leave-active-class="transition duration-200 ease-in"
+          leave-from-class="opacity-100 translate-y-0"
+          leave-to-class="opacity-0 translate-y-2"
+        >
+          <button
+            v-if="showBackToTop"
+            class="absolute bottom-4 right-4 flex h-10 w-10 items-center justify-center rounded-full bg-white text-gray-700 shadow-lg shadow-gray-900/10 transition active:scale-95"
+            aria-label="回到顶部"
+            @click="scrollToTop"
+          >
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 15l-6-6-6 6" />
+            </svg>
+          </button>
+        </Transition>
       </div>
     </div>
 
     <!-- Bottom bar -->
     <div class="fixed bottom-0 left-0 right-0 z-20 px-4 pb-safe pt-2">
       <div class="flex items-center gap-3 rounded-2xl bg-gray-900 p-2 pl-4 text-white shadow-2xl shadow-gray-900/30">
-        <div class="relative flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-gray-800" @click="showCart = true">
+        <div class="relative flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-gray-800" aria-label="打开购物车" @click="showCart = true">
           <svg class="h-6 w-6 text-orange-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M6 6h15l-1.5 9h-12z" />
             <circle cx="9" cy="20" r="1.5" fill="currentColor" />
@@ -512,6 +568,7 @@ async function submitOrder() {
                   <span class="text-sm font-medium text-gray-700">x{{ item.quantity }}</span>
                   <button
                     class="flex h-6 w-6 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm transition active:scale-90"
+                    :aria-label="`再来一份${item.name}`"
                     @click="addExistingToCart(item)"
                   >
                     <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -528,6 +585,12 @@ async function submitOrder() {
             <div class="mb-2 text-4xl">🛒</div>
             <div class="text-sm">购物车是空的</div>
             <div class="mt-1 text-xs">快去挑选心仪的菜品吧～</div>
+            <button
+              class="mt-4 rounded-full bg-orange-500 px-5 py-2 text-sm font-medium text-white shadow-md shadow-orange-500/30 transition active:scale-95"
+              @click="showCart = false"
+            >
+              去挑选菜品 →
+            </button>
           </div>
 
           <div v-else-if="cart.length > 0" class="space-y-3">
@@ -548,6 +611,7 @@ async function submitOrder() {
                 <div class="flex items-center gap-2">
                   <button
                     class="flex h-7 w-7 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 shadow-sm transition active:scale-90"
+                    aria-label="减少数量"
                     @click="updateQty(item.dishId, -1)"
                   >
                     <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -564,6 +628,7 @@ async function submitOrder() {
                   />
                   <button
                     class="flex h-7 w-7 items-center justify-center rounded-full bg-orange-500 text-white shadow-md shadow-orange-500/30 transition active:scale-90"
+                    aria-label="增加数量"
                     @click="updateQty(item.dishId, 1)"
                   >
                     <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -634,6 +699,25 @@ async function submitOrder() {
           >
             {{ submitting ? '提交中...' : (currentOrder ? '追加到订单' : '提交订单') }}
           </button>
+        </div>
+
+        <!-- Success overlay -->
+        <div
+          v-if="showSuccess"
+          class="absolute inset-x-0 bottom-0 top-0 z-20 flex flex-col items-center justify-center rounded-t-3xl bg-white px-6 text-center"
+        >
+          <div class="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-3xl">
+            ✓
+          </div>
+          <div class="text-lg font-bold text-gray-900">
+            {{ currentOrder ? '追加成功！' : '订单提交成功！' }}
+          </div>
+          <div v-if="successOrderNo" class="mt-1 text-sm text-gray-500">
+            订单号：{{ successOrderNo }}
+          </div>
+          <div class="mt-2 text-xs text-gray-400">
+            2 秒后自动关闭
+          </div>
         </div>
       </div>
     </Transition>
