@@ -27,6 +27,7 @@ const showSuccess = ref(false)
 const successOrderNo = ref('')
 const dishesContainer = ref<HTMLElement | null>(null)
 const showBackToTop = ref(false)
+const showGuestSetup = ref(true)
 
 const categoryOrder = ['铁锅炖', '特色菜', '农家小炒', '凉菜', '特色豆腐', '主食', '酒水']
 
@@ -164,6 +165,11 @@ async function loadData() {
         guests.value = typeof order.guests === 'number' ? order.guests : 1
       }
     }
+
+    // 没有已有订单时，强制弹出人数设置
+    if (!currentOrder.value) {
+      showGuestSetup.value = true
+    }
   } catch (err: unknown) {
     toast.error('加载失败: ' + (err instanceof Error ? err.message : '未知错误'))
   } finally {
@@ -271,6 +277,58 @@ async function submitOrder() {
         </div>
       </div>
     </header>
+
+    <!-- Guest setup modal -->
+    <Transition
+      enter-active-class="transition duration-300 ease-out"
+      enter-from-class="opacity-0"
+      enter-to-class="opacity-100"
+      leave-active-class="transition duration-200 ease-in"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
+    >
+      <div
+        v-if="showGuestSetup"
+        class="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm px-6"
+      >
+        <div class="w-full max-w-xs rounded-3xl bg-white p-6 shadow-2xl">
+          <div class="text-center">
+            <div class="mb-1 text-4xl">👥</div>
+            <h2 class="text-lg font-bold text-gray-900">请选择用餐人数</h2>
+            <p class="mt-1 text-xs text-gray-400">人数将用于计算餐具费</p>
+          </div>
+
+          <div class="mt-6 flex items-center justify-center gap-6">
+            <button
+              class="flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100 text-gray-700 transition active:scale-90"
+              aria-label="减少人数"
+              @click="guests = Math.max(1, guests - 1)"
+            >
+              <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M5 12h14" />
+              </svg>
+            </button>
+            <div class="text-4xl font-extrabold text-orange-600">{{ guests }}</div>
+            <button
+              class="flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-lg shadow-orange-500/30 transition active:scale-90"
+              aria-label="增加人数"
+              @click="guests++"
+            >
+              <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+          </div>
+
+          <button
+            class="mt-8 w-full rounded-xl bg-gradient-to-r from-orange-500 to-red-500 py-3.5 text-base font-semibold text-white shadow-lg shadow-orange-500/30 transition active:scale-[0.98]"
+            @click="showGuestSetup = false"
+          >
+            开始点餐
+          </button>
+        </div>
+      </div>
+    </Transition>
 
     <!-- Info card -->
     <div class="-mt-5 mx-4">
