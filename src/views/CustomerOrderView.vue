@@ -353,7 +353,12 @@ async function submitOrder() {
                 {{ dish.description }}
               </div>
               <div class="mt-1.5 flex items-center justify-between">
-                <div class="text-base font-bold text-orange-600">{{ MoneyCalculator.format(dish.price) }}</div>
+                <div class="flex items-center gap-2">
+                  <div class="text-base font-bold text-orange-600">{{ MoneyCalculator.format(dish.price) }}</div>
+                  <div v-if="dish.name === '铁锅鱼' || dish.name === '铁锅炖鱼'" class="shrink-0 rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-700">
+                    ⚖️ 按斤计价
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -412,13 +417,19 @@ async function submitOrder() {
           >
             {{ cartTotalQty }}
           </div>
+          <div
+            v-else-if="existingItems.length > 0"
+            class="absolute -right-1 -top-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-green-500 px-1 text-[10px] font-bold"
+          >
+            {{ existingItems.length }}
+          </div>
         </div>
         <div class="min-w-0 flex-1 cursor-pointer" @click="showCart = true">
           <div class="text-lg font-bold">
             {{ MoneyCalculator.format(cartTotalQty > 0 ? cartTotalAmount + cutleryTotal : 0) }}
           </div>
           <div class="text-[10px] text-gray-400">
-            {{ cartTotalQty > 0 ? `已选 ${cartTotalQty} 件${cutleryTotal > 0 ? '，含餐具费' : tablewareDish ? '，免餐具费' : ''}` : (existingItems.length > 0 ? '已有订单，可继续加菜' : '购物车是空的') }}
+            {{ cartTotalQty > 0 ? `已选 ${cartTotalQty} 件${cutleryTotal > 0 ? '，含餐具费' : tablewareDish ? '，免餐具费' : ''}` : (existingItems.length > 0 ? `已下单 ${existingItems.length} 道菜 · 点击加菜` : '购物车是空的') }}
           </div>
         </div>
         <button
