@@ -17,7 +17,7 @@ export default defineConfig([
   },
   {
     name: 'app/files-to-ignore',
-    ignores: ['**/dist/**', '**/dist-ssr/**', '**/coverage/**', '**/playwright-report/**'],
+    ignores: ['**/dist/**', '**/dist-ssr/**', '**/coverage/**', '**/playwright-report/**', '**/pb_migrations/**', 'src/types/pocketbase-types.ts'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

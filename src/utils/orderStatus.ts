@@ -3,6 +3,8 @@
  * 智能点菜系统 - 状态流转逻辑
  */
 
+import { MoneyCalculator } from './security'
+
 export const OrderStatus = {
   PENDING: 'pending',
   COOKING: 'cooking',
@@ -48,6 +50,7 @@ export function getAllowedNextStatuses(status: OrderStatusValue): OrderStatusVal
  * 检查状态流转是否合法
  */
 export function canTransition(from: OrderStatusValue, to: OrderStatusValue): boolean {
+  if (from === to) return false
   return getAllowedNextStatuses(from).includes(to)
 }
 
@@ -97,22 +100,32 @@ export function getStatusButtons(status: OrderStatusValue): Array<{
 
 /**
  * 生成订单号
+ * 使用毫秒时间戳 + crypto 随机数，避免碰撞
  */
 export function generateOrderNo(): string {
   const date = new Date()
   const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '')
-  const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
-  return `O${dateStr}${random}`
+  const ms = String(date.getTime()).slice(-4)
+  const randomArr = new Uint32Array(1)
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(randomArr)
+  } else {
+    randomArr[0] = Math.floor(Math.random() * 0xFFFFFFFF)
+  }
+  const randVal = randomArr[0] ?? Math.floor(Math.random() * 0xFFFFFFFF)
+  const random = String(randVal % 1000000).padStart(6, '0')
+  return `O${dateStr}${ms}${random}`
 }
 
 /**
  * 计算订单金额（简化版）
+ * 使用 MoneyCalculator 避免浮点精度问题
  */
 export function calculateAmount(
   items: Array<{ price: number; quantity: number }>,
   discount = 0,
 ): { total: number; discount: number; final: number } {
-  const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0)
-  const final = Math.max(0, total - discount)
-  return { total, discount, final }
+  // 复用 MoneyCalculator 保证精度一致性
+  const { total, discount: d, final } = MoneyCalculator.calculate(items, discount)
+  return { total, discount: d, final }
 }

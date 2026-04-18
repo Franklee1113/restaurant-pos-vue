@@ -238,9 +238,12 @@ grep -r "\.reduce.*price.*\*" --include="*.js" src/ || echo "✅ 使用 MoneyCal
 | 内存泄漏 | 🟥 P0 | 检查 `addEventListener` 是否有 `signal` |
 | 错误处理 | 🟥 P0 | 检查 `fetch` 是否有 `response.ok` 判断 |
 | 金额精度 | 🟥 P0 | 检查是否使用 `MoneyCalculator` |
+| 数据库变更 | 🟥 P0 | Schema 变更是否有对应迁移文件 |
+| 数据一致性 | 🟥 P0 | 编辑时是否正确回填所有字段（含新字段） |
 | 魔法字符串 | 🟨 P1 | 检查状态值是否使用常量枚举 |
 | 代码重复 | 🟨 P1 | 类似功能是否已存在工具函数 |
 | 边界处理 | 🟨 P1 | 空数据、异常输入的处理 |
+| 打印模板 | 🟨 P1 | 新费用项是否在账单中显示 |
 | 命名规范 | 🟩 P2 | 函数/变量命名是否清晰 |
 
 ### Review 意见模板
@@ -271,6 +274,7 @@ import { escapeHtml, MoneyCalculator, sanitizeInput } from '../utils/security.js
 
 // 常量
 import { OrderStatus, PaymentStatus } from '../constants/orderStatus.js';
+import { CutleryType } from '../schemas/order.schema.js';  // 餐具类型
 import { API_BASE } from '../config/api.js';
 
 // 工具
@@ -330,11 +334,14 @@ export class MyComponent {
 | 弹窗/Toast 样式突兀 | 使用原生 `alert/confirm` | 统一使用 `useToast()` + `useConfirm()` |
 | 轮询导致内存泄漏 | `setInterval` 未在 unmount 清理 | 组件销毁时必须 `clearInterval` |
 | 厨房大屏无提示音 | Web Audio API 兼容性问题 | 使用 `AudioContext || webkitAudioContext` 兜底 |
+| 订单金额缺少餐具费 | 未包含附加费用计算 | 使用 `orderSummary` 汇总所有费用项 |
+| 编辑订单餐具数量错误 | 未正确处理旧订单数据兼容 | 加载时检查字段是否存在：`order.cutlery?.quantity \|\| guests` |
+| 打印账单不显示餐具 | 打印模板未读取 cutlery 字段 | 更新 `generateBillHTML()` 包含餐具明细 |
 
 ---
 
 **清单版本**: v1.2  
-**最后更新**: 2026-04-13  
+**最后更新**: 2026-04-14  
 **适用范围**: 智能点菜系统前端开发
 
 ---
@@ -399,10 +406,64 @@ export class MyComponent {
 
 | 版本 | 日期 | 更新人 | 更新内容 |
 |------|------|--------|----------|
+| v1.4 | 2026-04-17 | 架构师 | 新增餐具费定价改造检查项：单价必须从菜品维护读取，前端不展示餐具选择 UI |
+| v1.3 | 2026-04-17 | 架构师 | 新增业务逻辑后端托管检查项，P0 修复：金额计算、状态机、table_status 同步迁后端 |
+| v1.2 | 2026-04-14 | Kimi | 新增餐具功能检查项，支持订单餐具选择和计费 |
 | v1.1 | 2026-04-13 | Kimi | 新增路由参数一致性检查项，修复编辑订单页面闪退问题 |
 | v1.0 | 2026-04-13 | 架构师 | 初始版本，汇总 7 个安全问题、3 个严重代码缺陷 |
 
 ### 详细更新日志
+
+#### v1.4 (2026-04-17) - 餐具费定价改造
+**背景**: 员工端餐具单价写死为 ¥2/套，与菜品维护不同步；顾客端将餐具混入 `items` 数组，前后端逻辑不统一；前端展示了餐具配置导致顾客可感知系统自动加餐具的行为。
+
+**新增检查项**:
+1. **餐具单价必须从菜品维护读取**：`dishes` 集合中 `category === '餐具'` 的菜品 `price` 即为餐具单价，禁止前端写死任何定价
+2. **前端不得展示餐具选择 UI**：员工端删除 `CutleryConfigPanel` 和折叠配置面板；顾客端购物车中不得出现餐具 item
+3. **餐具数据统一使用 `cutlery` 字段**：禁止将餐具作为普通菜品混入 `items` 数组传入后端
+4. **后端金额计算必须包含 `cutlery.totalPrice`**：`pb_hooks/orders.pb.js` 在计算订单总金额时，需将 `cutlery.totalPrice` 加入 `totalAmount`
+
+**涉及文件**:
+- `src/views/OrderFormView.vue` - 删除餐具配置面板，单价从 dishes 读取
+- `src/views/CustomerOrderView.vue` - 购物车不再展示餐具，提交时以 `cutlery` 字段传入
+
+---
+
+#### v1.3 (2026-04-17) - 业务逻辑后端托管 (P0 修复)
+**背景**: 经架构评审发现，订单状态流转、金额计算、table_status 同步等关键业务逻辑全部托管在前端，存在严重并发覆盖风险（两个浏览器同时操作同一订单会导致数据不一致）。
+
+**新增检查项**:
+1. **核心金额计算必须在后端执行**：前端可计算用于展示，但后端 `onRecordBeforeCreateRequest` / `onRecordBeforeUpdateRequest` 必须重新计算并覆盖 `totalAmount` / `discount` / `finalAmount`
+2. **状态机必须由后端维护**：`orders` collection 的 update hook 必须根据 `items` 的 `status` 变化自动推断整体订单状态，并校验状态流转合法性
+3. **table_status 不得由前端直接同步**：订单创建后自动开台、订单完成后自动清台，必须通过 `onRecordAfterCreateRequest` / `onRecordAfterUpdateRequest` 实现
+4. **前端不再做分布式事务**：禁止前端 `GET -> 修改 -> PATCH` 的模式来处理业务状态
+
+**涉及文件**:
+- `pb_hooks/orders.pb.js` - 后端核心钩子（金额、状态机、table_status 同步）
+- `src/api/pocketbase.ts` - 简化 `updateOrderItemStatus` / `appendOrderItems`
+- `src/views/CustomerOrderView.vue` - 移除手动同步 table_status 的冗余代码
+
+---
+
+#### v1.2 (2026-04-14) - 订单餐具功能
+**背景**: 新增订单餐具选择功能，支持按人数默认配置餐具，可选择免费/收费餐具
+
+**新增检查项**:
+1. 新功能涉及数据库 Schema 变更时，必须创建 PocketBase 迁移文件
+2. 订单金额计算必须包含餐具费用（如选择收费餐具）
+3. 打印账单必须显示餐具明细
+4. 编辑订单时必须正确回填餐具配置
+
+**数据库变更**:
+- orders 集合新增 `cutlery` JSON 字段，结构：`{ type, quantity, unitPrice, totalPrice }`
+- 迁移文件：`pb_migrations/1778270400_add_cutlery_to_orders.js`
+
+**涉及文件**:
+- `src/schemas/order.schema.ts` - 添加餐具配置 Schema
+- `src/views/OrderFormView.vue` - 餐具选择 UI 和计算逻辑
+- `src/utils/printBill.ts` - 账单打印显示餐具信息
+
+---
 
 #### v1.1 (2026-04-13) - 路由参数一致性
 **背景**: 订单列表点击「编辑」按钮后页面闪退，根因是路由导航时未将参数同步到 URL hash
@@ -714,6 +775,81 @@ webServer: {
 #### 相关提交
 - 修复 PR: #fix-playwright-ci-timeout
 - 检查清单更新: v1.2
+
+---
+
+#### FEATURE-001: 订单餐具功能开发总结
+- **开发时间**: 2026-04-14
+- **开发人**: Kimi
+- **功能范围**: 订单餐具选择（新建、编辑、打印账单）
+
+#### 功能需求
+1. 新建订单时，按人数自动配置餐具数量
+2. 支持切换收费餐具（¥2/套）或免费餐具
+3. 支持手动修改餐具数量
+4. 编辑订单时正确回填餐具配置
+5. 打印账单显示餐具明细
+
+#### 技术实现要点
+
+**1. 数据模型设计**
+```typescript
+// schemas/order.schema.ts
+export const CutleryType = {
+  FREE: 'free',      // 免费餐具
+  CHARGED: 'charged', // 收费餐具
+} as const
+
+export const cutleryConfigSchema = z.object({
+  type: z.enum([CutleryType.FREE, CutleryType.CHARGED]),
+  quantity: z.number().int().nonnegative(),
+  unitPrice: z.number().nonnegative(),
+  totalPrice: z.number().nonnegative(),
+})
+```
+
+**2. 金额计算逻辑**
+```typescript
+// 订单总金额 = 菜品金额 + 餐具费 - 折扣
+const orderSummary = computed(() => {
+  const dishSummary = cartSummary.value
+  const cutleryPrice = cutleryConfig.value.totalPrice
+  return {
+    dishesTotal: dishSummary.total,
+    cutleryTotal: cutleryPrice,
+    subtotal: dishSummary.total + cutleryPrice,
+    discount: dishSummary.discount,
+    final: dishSummary.final + cutleryPrice,
+  }
+})
+```
+
+**3. 数据库迁移**
+- 新增 `cutlery` JSON 字段到 orders 集合
+- 迁移文件：`pb_migrations/1778270400_add_cutlery_to_orders.js`
+
+#### 开发注意事项
+
+**✅ 最佳实践**
+1. 使用 `watch` 监听人数变化，自动同步餐具数量（除非手动修改过）
+2. 使用 computed 计算餐具配置对象，确保数据一致性
+3. 打印账单时单独列出餐具明细，便于顾客核对
+4. Schema 验证确保数据完整性
+
+**⚠️ 踩坑记录**
+1. **默认值设置**：新建订单时需要初始化餐具数量，否则为 0
+2. **编辑回填**：加载订单数据时必须检查 cutlery 字段是否存在（兼容旧订单）
+3. **金额计算**：折扣只应用于菜品金额，不应用于餐具费（业务规则）
+
+#### 相关文件
+- `src/schemas/order.schema.ts` - 数据模型
+- `src/views/OrderFormView.vue` - UI 和逻辑
+- `src/utils/printBill.ts` - 打印功能
+- `pb_migrations/1778270400_add_cutlery_to_orders.js` - 数据库迁移
+
+#### 检查清单更新
+- 新增「数据库 Schema 变更必须创建迁移文件」检查项
+- 新增「订单金额计算必须包含附加费用」检查项
 
 ---
 

@@ -6,11 +6,18 @@ const USER_KEY = 'pb_user'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem(TOKEN_KEY))
-  const user = ref<Record<string, any> | null>(null)
+  const user = ref<Record<string, unknown> | null>(null)
+  const isLoggingIn = ref(false)
 
   try {
     const raw = localStorage.getItem(USER_KEY)
-    if (raw) user.value = JSON.parse(raw)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      // 防止原型链污染
+      delete (parsed as any).__proto__
+      delete (parsed as any).constructor
+      user.value = parsed
+    }
   } catch {
     user.value = null
   }
@@ -18,7 +25,9 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoggedIn = computed(() => !!token.value && !!user.value)
   const userEmail = computed(() => user.value?.email || '管理员')
 
-  function saveAuth(newToken: string, newUser: Record<string, any>) {
+  function saveAuth(newToken: string, newUser: Record<string, unknown>) {
+    delete (newUser as any).__proto__
+    delete (newUser as any).constructor
     token.value = newToken
     user.value = newUser
     localStorage.setItem(TOKEN_KEY, newToken)
@@ -33,17 +42,30 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function login(email: string, password: string) {
-    const res = await fetch('/api/collections/users/auth-with-password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identity: email, password }),
-    })
-    const data = await res.json()
-    if (data.token) {
-      saveAuth(data.token, data.record)
-      return { success: true }
+    if (isLoggingIn.value) {
+      return { success: false, error: '登录请求进行中，请稍候' }
     }
-    return { success: false, error: data.message || '登录失败' }
+    isLoggingIn.value = true
+    try {
+      const res = await fetch('/api/collections/users/auth-with-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identity: email, password }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        return { success: false, error: data.message || `登录失败 (${res.status})` }
+      }
+      if (data.token) {
+        saveAuth(data.token, data.record)
+        return { success: true }
+      }
+      return { success: false, error: data.message || '登录失败' }
+    } catch {
+      return { success: false, error: '网络异常，请检查连接' }
+    } finally {
+      isLoggingIn.value = false
+    }
   }
 
   function logout() {
@@ -58,7 +80,5 @@ export const useAuthStore = defineStore('auth', () => {
     userEmail,
     login,
     logout,
-    clearAuth,
-    saveAuth,
   }
 })

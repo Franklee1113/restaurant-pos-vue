@@ -48,6 +48,6 @@ describe('Validators', () => {
 
   it('应该消毒字符串', () => {
     expect(Validators.sanitizeString('<script>')).toBe('script')
-    expect(Validators.sanitizeString(123 as any)).toBe('')
+    expect(Validators.sanitizeString(123 as unknown as string)).toBe('')
   })
 })

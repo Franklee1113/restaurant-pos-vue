@@ -14,6 +14,9 @@ let resolveFn: ((value: boolean) => void) | null = null
 
 export function useConfirm() {
   function confirm(opts: ConfirmOptions = {}): Promise<boolean> {
+    if (open.value) {
+      resolveFn?.(false)
+    }
     options.value = opts
     open.value = true
     return new Promise((resolve) => {

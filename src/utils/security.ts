@@ -22,15 +22,21 @@ export function escapeHtml(text: unknown): string {
 /**
  * 安全的设置 innerHTML
  * 仅用于受信任的 HTML 模板，不用于用户输入
+ * 对用户输入内容统一先做 HTML 转义，再写入
  * @param element - DOM 元素
  * @param html - HTML 字符串（必须是可信的）
  */
 export function setSafeHtml(element: HTMLElement, html: string): void {
   if (!element) return
-  const cleaned = html
-    .replace(/on\w+\s*=/gi, '')
-    .replace(/javascript:/gi, '')
-  element.innerHTML = cleaned
+  // 不再依赖不可靠的正则过滤，直接拒绝包含尖括号的内容
+  // 如果需要插入用户内容，应先调用 escapeHtml()
+  const hasUnescapedTags = /<(?!\s*\/?\s*(br|p|div|span|b|i|u|strong|em|h[1-6]|ul|ol|li|table|tr|td|th|thead|tbody|tfoot|colgroup|col|hr)\s*[^>]*>)/i
+  if (hasUnescapedTags.test(html)) {
+    console.warn('setSafeHtml: 检测到未转义的用户输入标签，已阻止插入。')
+    element.textContent = html
+    return
+  }
+  element.innerHTML = html
 }
 
 /**
@@ -117,7 +123,7 @@ export class MoneyCalculator {
     for (const item of items) {
       const priceCents = this.toCents(item.price)
       const quantity = Math.round(item.quantity * 10)
-      totalCents += (priceCents * quantity) / 10
+      totalCents += Math.round((priceCents * quantity) / 10)
     }
 
     const discountCents = this.toCents(discount)
@@ -146,7 +152,7 @@ export class MoneyCalculator {
     for (const item of items) {
       const priceCents = this.toCents(item.price)
       const quantity = Math.round(item.quantity * 10)
-      totalCents += (priceCents * quantity) / 10
+      totalCents += Math.round((priceCents * quantity) / 10)
     }
 
     let discountCents = 0
@@ -190,12 +196,16 @@ export const Validators = {
   },
 
   amount(value: number): boolean {
-    const num = parseFloat(String(value))
+    const str = String(value).trim()
+    if (!/^\d+(\.\d+)?$/.test(str)) return false
+    const num = Number(str)
     return !isNaN(num) && num >= 0 && num <= 999999
   },
 
   quantity(value: number): boolean {
-    const num = parseFloat(String(value))
+    const str = String(value).trim()
+    if (!/^\d+(\.\d+)?$/.test(str)) return false
+    const num = Number(str)
     return !isNaN(num) && num > 0 && num <= 999
   },
 
@@ -204,6 +214,6 @@ export const Validators = {
     return value
       .trim()
       .slice(0, maxLength)
-      .replace(/[<>"']/g, '')
+      .replace(/[<>'"`\\]/g, '')
   },
 }

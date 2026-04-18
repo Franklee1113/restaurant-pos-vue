@@ -1,0 +1,43 @@
+# =============================================================================
+# 智能点菜系统 - 本地/生产一体化编排
+# 服务：frontend (Nginx) + pocketbase (数据库与 API)
+# 用法：docker compose up -d
+# =============================================================================
+
+services:
+  pocketbase:
+    image: ghcr.io/muchobien/pocketbase:0.22
+    container_name: restaurant-pos-pb
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    volumes:
+      - pb_data:/pb/pb_data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8090/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: restaurant-pos-web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      - VITE_PB_URL=/api
+    depends_on:
+      pocketbase:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  pb_data:

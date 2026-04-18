@@ -1,27 +1,35 @@
 import { test, expect } from '@playwright/test'
 
-test.describe('菜品管理', () => {
+test.describe('菜品维护', () => {
   test.use({ storageState: 'playwright/.auth/user.json' })
 
-  test('应该能访问菜品管理页面并显示分类筛选', async ({ page }) => {
+  test('应该能在系统设置中访问菜品维护并显示分类筛选', async ({ page }) => {
+    await page.goto('/settings')
+    await expect(page.locator('h2')).toContainText('系统设置')
+    await expect(page.locator('h3:has-text("菜品维护")')).toBeVisible()
+    await expect(page.locator('button:has-text("+ 添加菜品")').first()).toBeVisible()
+    await expect(page.locator('button:has-text("全部")').first()).toBeVisible()
+    // 桌面端表格或移动端卡片至少有一个可见
+    await expect(page.locator('table, .md\\:hidden').first()).toBeVisible()
+  })
+
+  test('旧路由 /dishes 应该重定向到系统设置', async ({ page }) => {
     await page.goto('/dishes')
-    await expect(page.locator('h2')).toContainText('菜品管理')
-    await expect(page.locator('button:has-text("+ 添加菜品")')).toBeVisible()
-    await expect(page.locator('button:has-text("全部")')).toBeVisible()
-    await expect(page.locator('table')).toBeVisible()
+    await page.waitForURL('**/settings')
+    await expect(page.locator('h2')).toContainText('系统设置')
   })
 
   test('添加菜品弹窗应该能正常打开和关闭', async ({ page }) => {
-    await page.goto('/dishes')
-    await page.locator('button:has-text("+ 添加菜品")').click()
+    await page.goto('/settings')
+    await page.locator('button:has-text("+ 添加菜品")').first().click()
 
     // 弹窗出现
     await expect(page.locator('h3')).toContainText('添加菜品')
     await expect(page.locator('input[type="text"]').first()).toBeVisible()
-    await expect(page.locator('button:has-text("保存")')).toBeVisible()
+    await expect(page.locator('button:has-text("保存")').first()).toBeVisible()
 
     // 点击取消关闭
-    await page.locator('button:has-text("取消")').click()
-    await expect(page.locator('h3:has-text("添加菜品")')).not.toBeVisible()
+    await page.locator('button:has-text("取消")').first().click()
+    await expect(page.locator('h3:has-text("添加菜品")').first()).not.toBeVisible()
   })
 })

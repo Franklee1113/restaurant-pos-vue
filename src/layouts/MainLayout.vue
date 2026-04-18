@@ -5,7 +5,6 @@ import { useAuthStore } from '@/stores/auth.store'
 import { useGlobalLoading } from '@/composables/useGlobalLoading'
 import { globalConfirm } from '@/composables/useConfirm'
 import AppLoading from '@/components/AppLoading.vue'
-import ToastContainer from '@/components/ToastContainer.vue'
 import DialogModal from '@/components/DialogModal.vue'
 
 const route = useRoute()
@@ -16,7 +15,6 @@ const mobileMenuOpen = ref(false)
 const navItems = [
   { path: '/', label: '订单管理', name: 'orderList' },
   { path: '/create-order', label: '新建订单', name: 'createOrder' },
-  { path: '/dishes', label: '菜品管理', name: 'dishManagement' },
   { path: '/statistics', label: '数据统计', name: 'statistics' },
   { path: '/settings', label: '系统设置', name: 'settings' },
 ]
@@ -25,7 +23,6 @@ const navItems = [
 <template>
   <div class="min-h-screen flex flex-col bg-gray-50">
     <AppLoading :visible="loadingVisible" :text="loadingText" />
-    <ToastContainer />
     <DialogModal
       :open="globalConfirm.open.value"
       :title="globalConfirm.options.value.title"

@@ -18,6 +18,12 @@ const router = createRouter({
       meta: { public: true },
     },
     {
+      path: '/customer-order',
+      name: 'customerOrder',
+      component: () => import('@/views/CustomerOrderView.vue'),
+      meta: { public: true },
+    },
+    {
       path: '/',
       component: MainLayout,
       children: [
@@ -43,8 +49,7 @@ const router = createRouter({
         },
         {
           path: 'dishes',
-          name: 'dishManagement',
-          component: () => import('@/views/DishManagementView.vue'),
+          redirect: { name: 'settings' },
         },
         {
           path: 'statistics',

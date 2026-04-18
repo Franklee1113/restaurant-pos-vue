@@ -17,7 +17,7 @@ test.describe('系统设置', () => {
 
     // 获取当前分类数量
     const categoryTags = page.locator('.bg-blue-50.text-blue-700')
-    const initialCount = await categoryTags.count()
+    await categoryTags.count()
 
     // 添加新分类
     const newCategory = `测试分类_${Date.now()}`

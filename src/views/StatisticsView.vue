@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
-import { OrderAPI } from '@/api/pocketbase'
+import { OrderAPI, type Order } from '@/api/pocketbase'
 import { OrderStatus, StatusLabels, StatusColors } from '@/utils/orderStatus'
+import { MoneyCalculator } from '@/utils/security'
 import { useToast } from '@/composables/useToast'
 
 const toast = useToast()
 
-const orders = ref<any[]>([])
+const orders = ref<Order[]>([])
 const loading = ref(false)
 const dateRange = ref('week')
 const startDate = ref('')
@@ -31,6 +32,17 @@ onMounted(() => {
     nextTick(initCharts)
   })
   window.addEventListener('resize', resizeCharts)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', resizeCharts)
+  Object.keys(chartInstances).forEach((key) => {
+    const inst = chartInstances[key as keyof typeof chartInstances]
+    if (inst) {
+      inst.dispose()
+      chartInstances[key as keyof typeof chartInstances] = null
+    }
+  })
 })
 
 function resizeCharts() {
@@ -66,22 +78,29 @@ function onCustomDateChange() {
   loadData()
 }
 
-function toUTCDateTime(dateStr: string, timeStr: string) {
-  return new Date(`${dateStr}T${timeStr}`).toISOString()
+function sanitizeDateFilter(dateStr: string, timeStr: string): string | null {
+  const d = new Date(`${dateStr}T${timeStr}`)
+  return isNaN(d.getTime()) ? null : d.toISOString()
 }
 
 async function loadData() {
   loading.value = true
   try {
     const filters: string[] = []
-    if (startDate.value) filters.push(`created >= "${toUTCDateTime(startDate.value, '00:00:00')}"`)
-    if (endDate.value) filters.push(`created <= "${toUTCDateTime(endDate.value, '23:59:59.999')}"`)
+    if (startDate.value) {
+      const safeStart = sanitizeDateFilter(startDate.value, '00:00:00')
+      if (safeStart) filters.push(`created >= '${safeStart}'`)
+    }
+    if (endDate.value) {
+      const safeEnd = sanitizeDateFilter(endDate.value, '23:59:59.999')
+      if (safeEnd) filters.push(`created <= '${safeEnd}'`)
+    }
     const filter = filters.join(' && ')
     const res = await OrderAPI.getOrders(1, 500, filter)
     orders.value = res.items
     nextTick(updateCharts)
-  } catch (err: any) {
-    toast.error('加载数据失败: ' + err.message)
+  } catch (err: unknown) {
+    toast.error('加载数据失败: ' + (err instanceof Error ? err.message : '未知错误'))
   } finally {
     loading.value = false
   }
@@ -135,11 +154,11 @@ const stats = computed(() => {
         t.count++
       }
       if (order.items) {
-        order.items.forEach((item: any) => {
+        order.items.forEach((item) => {
           const name = item.name || '未知菜品'
           if (!s.dishStats[name]) s.dishStats[name] = { name, quantity: 0, revenue: 0 }
           s.dishStats[name].quantity += item.quantity || 0
-          s.dishStats[name].revenue += (item.price || 0) * (item.quantity || 0)
+          s.dishStats[name].revenue += MoneyCalculator.calculate([{ price: item.price || 0, quantity: item.quantity || 0 }], 0).total
         })
       }
     } else {
