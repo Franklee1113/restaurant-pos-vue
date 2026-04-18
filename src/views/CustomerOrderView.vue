@@ -20,6 +20,7 @@ const currentOrder = ref<Order | null>(null)
 const tableStatus = ref<TableStatus | null>(null)
 const showCart = ref(false)
 const guests = ref(1)
+const orderRemark = ref('')
 const tablewareDish = ref<Dish | null>(null)
 const categoryRefs = ref<Record<string, HTMLElement>>({})
 
@@ -158,12 +159,13 @@ async function submitOrder() {
   }
   submitting.value = true
   try {
+    const remark = orderRemark.value.trim()
     const items: OrderItem[] = cart.value.map((item) => ({
       dishId: item.dishId,
       name: item.name,
       price: item.price,
       quantity: item.quantity,
-      remark: item.remark,
+      remark: remark || item.remark,
       status: 'pending',
     }))
 
@@ -213,6 +215,7 @@ async function submitOrder() {
       toast.success('订单提交成功！')
     }
     clearCart()
+    orderRemark.value = ''
     showCart.value = false
     await loadData()
   } catch (err: unknown) {
@@ -555,7 +558,7 @@ async function submitOrder() {
                     :value="item.quantity"
                     type="number"
                     min="0"
-                    class="h-7 w-12 rounded-lg border border-gray-200 bg-white px-1 text-center text-sm font-semibold text-gray-900 [-moz-appearance:textfield] focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    class="h-7 w-14 rounded-lg border border-gray-200 bg-white px-1 text-center text-sm font-semibold text-gray-900 [-moz-appearance:textfield] focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                     @blur="setQty(item.dishId, Number(($event.target as HTMLInputElement).value))"
                     @keydown.enter="($event.target as HTMLInputElement).blur()"
                   />
@@ -569,12 +572,21 @@ async function submitOrder() {
                   </button>
                 </div>
               </div>
+            </div>
+
+            <!-- 整单备注 -->
+            <div v-if="cart.length > 0" class="mt-3 rounded-xl bg-white p-3 border border-orange-100">
+              <div class="flex items-center gap-2 mb-1.5">
+                <svg class="h-4 w-4 text-orange-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                <span class="text-xs font-medium text-gray-700">整单口味偏好</span>
+              </div>
               <input
-                :value="item.remark || ''"
+                v-model="orderRemark"
                 type="text"
-                placeholder="口味备注（如：少辣、不要葱）"
-                class="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700 placeholder-gray-400 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
-                @input="updateRemark(item.dishId, ($event.target as HTMLInputElement).value)"
+                placeholder="如：全部少辣、不要葱、口味偏淡…"
+                class="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700 placeholder-gray-400 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
               />
             </div>
 
