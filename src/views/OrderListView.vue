@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import * as XLSX from 'xlsx'
+import * as XLSX from '@e965/xlsx'
 import { OrderAPI, PublicOrderAPI, TableStatusAPI, type Order, type TableStatus, escapePbString } from '@/api/pocketbase'
 import { useSettingsStore } from '@/stores/settings.store'
 import { OrderStatus, StatusLabels, getStatusButtons, type OrderStatusValue, StatusBadgeClass as statusBadgeClass } from '@/utils/orderStatus'

@@ -25,7 +25,7 @@ export default defineConfig({
           if (id.includes('node_modules/echarts')) {
             return 'vendor-echarts'
           }
-          if (id.includes('node_modules/xlsx')) {
+          if (id.includes('node_modules/@e965/xlsx') || id.includes('node_modules/xlsx')) {
             return 'vendor-xlsx'
           }
         },
