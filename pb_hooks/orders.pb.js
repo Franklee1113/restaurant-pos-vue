@@ -247,6 +247,11 @@ onRecordBeforeUpdateRequest(
 
       // 始终执行金额重算
       {
+        // P1-fix: 部分更新时（只改 status 等非 items 字段），newItems 为空，使用 oldItems 重算金额
+        if (newItems.length === 0 && oldItems.length > 0) {
+          newItems = oldItems
+        }
+
         let cutlery = parseJSONField(record, 'cutlery', null)
         if (!cutlery) {
           cutlery = parseJSONField(original, 'cutlery', null)

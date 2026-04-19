@@ -11,6 +11,7 @@ set -e
 PROJECT_DIR="/var/www/restaurant-pos-vue"
 NGINX_ROOT="/var/www/restaurant-pos"
 PB_MIGRATIONS_DIR="/opt/pocketbase/pb_migrations"
+PB_HOOKS_DIR="/opt/pocketbase/pb_hooks"
 BACKUP_DIR="/var/www/restaurant-pos-backups"
 APP_VERSION=$(node -p "require('./package.json').version")
 if [ -z "$APP_VERSION" ]; then
@@ -78,13 +79,26 @@ fi
 sudo cp -r "$PROJECT_DIR/dist/assets" "$NGINX_ROOT/"
 sudo cp "$PROJECT_DIR/dist/index.html" "$NGINX_ROOT/"
 
-# Step 4: 检查 PocketBase 健康状态（不再自动处理迁移文件）
-log_info "Step 4/6: 检查 PocketBase 状态..."
-if [ -d "$PROJECT_DIR/pb_migrations" ] && [ "$(ls -A "$PROJECT_DIR/pb_migrations" 2>/dev/null)" ]; then
-  log_warn "发现 pb_migrations 目录存在文件，已跳过自动部署。如需应用迁移，请手动确认后执行。"
+# Step 4: 同步后端 Hook 文件并重启 PocketBase
+log_info "Step 4/6: 同步后端 Hook 文件..."
+if [ -d "$PROJECT_DIR/pb_hooks" ]; then
+  sudo cp -r "$PROJECT_DIR/pb_hooks/"* "$PB_HOOKS_DIR/"
+  log_info "pb_hooks 已同步到 $PB_HOOKS_DIR"
 fi
 
-sudo systemctl is-active --quiet pocketbase || sudo systemctl start pocketbase
+# 同步迁移文件
+if [ -d "$PROJECT_DIR/pb_migrations" ] && [ "$(ls -A "$PROJECT_DIR/pb_migrations" 2>/dev/null)" ]; then
+  sudo cp -r "$PROJECT_DIR/pb_migrations/"* "$PB_MIGRATIONS_DIR/"
+  log_info "pb_migrations 已同步到 $PB_MIGRATIONS_DIR"
+fi
+
+sudo systemctl restart pocketbase
+sleep 1
+if ! sudo systemctl is-active --quiet pocketbase; then
+  log_error "PocketBase 重启失败！"
+  rollback
+fi
+log_info "PocketBase 已重启并运行正常"
 sleep 1
 if ! sudo systemctl is-active --quiet pocketbase; then
   log_error "PocketBase 未正常运行！"
