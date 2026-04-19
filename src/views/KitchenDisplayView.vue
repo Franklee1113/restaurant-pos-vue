@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { OrderAPI, type Order, type OrderItem } from '@/api/pocketbase'
+import { OrderAPI, type Order, type OrderItem, subscribeToOrders } from '@/api/pocketbase'
 import { OrderStatus } from '@/utils/orderStatus'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useToast } from '@/composables/useToast'
@@ -45,16 +45,28 @@ const cookingOrderMeta = computed(() => {
   return map
 })
 
+const unsubscribeRealtime = ref<(() => void) | null>(null)
+const { start: startAutoRefresh, stop: stopAutoRefresh } = useAutoRefresh(loadData, { interval: 10000, immediate: false })
+
 onMounted(() => {
   loadData()
-  startAutoRefresh()
+  subscribeToOrders(
+    `status='${OrderStatus.PENDING}' || status='${OrderStatus.COOKING}'`,
+    () => loadData(),
+  ).then((unsub) => {
+    unsubscribeRealtime.value = unsub
+  }).catch(() => {
+    startAutoRefresh()
+  })
 })
 
 onUnmounted(() => {
-  // cleanup if needed
+  if (unsubscribeRealtime.value) {
+    unsubscribeRealtime.value()
+    unsubscribeRealtime.value = null
+  }
+  stopAutoRefresh()
 })
-
-const { start: startAutoRefresh } = useAutoRefresh(loadData, { interval: 10000, immediate: false })
 
 async function loadData() {
   loading.value = true
@@ -64,9 +76,12 @@ async function loadData() {
     const res = await OrderAPI.getOrders(1, 100, filter)
     const newIds = res.items.map((o) => o.id + o.status + o.updated).join(',')
     const hadNewPending = res.items.some((o) => {
-      const hasNewPending = (o.items || []).some((i) => getItemStatus(i) === 'pending')
-      const wasKnown = orders.value.find((old) => old.id === o.id)
-      return hasNewPending && !wasKnown
+      const hasPending = (o.items || []).some((i) => getItemStatus(i) === 'pending')
+      const oldOrder = orders.value.find((old) => old.id === o.id)
+      if (!oldOrder) return hasPending
+      const oldPendingCount = (oldOrder.items || []).filter((i) => getItemStatus(i) === 'pending').length
+      const newPendingCount = (o.items || []).filter((i) => getItemStatus(i) === 'pending').length
+      return newPendingCount > oldPendingCount
     })
     orders.value = res.items
     if (hadNewPending && lastOrderIds.value !== '' && newIds !== lastOrderIds.value) {

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { DishAPI, PublicOrderAPI, TableStatusAPI, type Dish, type OrderItem, type Order, type TableStatus } from '@/api/pocketbase'
+import { DishAPI, PublicOrderAPI, TableStatusAPI, type Dish, type OrderItem, type Order, type TableStatus, type CreateOrderPayload } from '@/api/pocketbase'
 import { OrderStatus, generateOrderNo } from '@/utils/orderStatus'
 import { MoneyCalculator } from '@/utils/security'
 import { useToast } from '@/composables/useToast'
 import { useCart } from '@/composables/useCart'
+import { DISH_RULES, CATEGORY_ORDER, CATEGORY_META } from '@/config/dish.config'
 
 const route = useRoute()
 const toast = useToast()
@@ -25,26 +26,10 @@ const tablewareDish = ref<Dish | null>(null)
 const categoryRefs = ref<Record<string, HTMLElement>>({})
 const showSuccess = ref(false)
 const successOrderNo = ref('')
+let successTimer: ReturnType<typeof setTimeout> | null = null
 const dishesContainer = ref<HTMLElement | null>(null)
 const showBackToTop = ref(false)
 const showGuestSetup = ref(true)
-
-const categoryOrder = ['铁锅炖', '特色菜', '农家小炒', '凉菜', '特色豆腐', '主食', '酒水']
-
-const categoryMeta: Record<string, { icon: string; gradient: string }> = {
-  '铁锅炖': { icon: '🔥', gradient: 'from-red-500 to-orange-500' },
-  '特色菜': { icon: '⭐', gradient: 'from-amber-500 to-yellow-500' },
-  '农家小炒': { icon: '🥬', gradient: 'from-green-500 to-emerald-500' },
-  '凉菜': { icon: '🥗', gradient: 'from-cyan-500 to-blue-500' },
-  '特色豆腐': { icon: '🧈', gradient: 'from-yellow-400 to-orange-400' },
-  '主食': { icon: '🍚', gradient: 'from-stone-400 to-stone-500' },
-  '酒水': { icon: '🍺', gradient: 'from-indigo-500 to-purple-500' },
-}
-
-const DISH_RULES: Record<string, { add: string; qty: number }> = {
-  '铁锅鱼': { add: '锅底', qty: 1 },
-  '铁锅炖鱼': { add: '锅底', qty: 1 },
-}
 
 const {
   cart,
@@ -59,16 +44,19 @@ const {
   clearCart,
 } = useCart(dishes, DISH_RULES)
 
-const filteredDishes = computed(() => {
-  let list = dishes.value.filter((d) => d.category === currentCategory.value && d.category !== '餐具')
-  if (currentCategory.value === '铁锅炖') {
-    list = [...list].sort((a, b) => {
-      if (a.name === '铁锅鱼') return -1
-      if (b.name === '铁锅鱼') return 1
-      return 0
-    })
+const sortedDishes = computed(() => {
+  if (currentCategory.value !== '铁锅炖') {
+    return dishes.value
   }
-  return list
+  return [...dishes.value].sort((a, b) => {
+    if (a.name === '铁锅鱼') return -1
+    if (b.name === '铁锅鱼') return 1
+    return 0
+  })
+})
+
+const filteredDishes = computed(() => {
+  return sortedDishes.value.filter((d) => d.category === currentCategory.value && d.category !== '餐具')
 })
 
 const cutleryTotal = computed(() => {
@@ -132,6 +120,13 @@ onMounted(() => {
   loadData()
 })
 
+onUnmounted(() => {
+  if (successTimer) {
+    clearTimeout(successTimer)
+    successTimer = null
+  }
+})
+
 async function loadData() {
   loading.value = true
   try {
@@ -146,8 +141,8 @@ async function loadData() {
     categories.value = cats
       .filter((c) => c !== '餐具')
       .sort((a, b) => {
-        const ia = categoryOrder.indexOf(a)
-        const ib = categoryOrder.indexOf(b)
+        const ia = CATEGORY_ORDER.indexOf(a)
+        const ib = CATEGORY_ORDER.indexOf(b)
         if (ia !== -1 && ib !== -1) return ia - ib
         if (ia !== -1) return -1
         if (ib !== -1) return 1
@@ -160,9 +155,11 @@ async function loadData() {
     tableStatus.value = ts
     if (ts?.currentOrderId) {
       const order = await PublicOrderAPI.getOrder(ts.currentOrderId).catch(() => null)
-      if (order && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED) {
+      if (order && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.SETTLED) {
         currentOrder.value = order
         guests.value = typeof order.guests === 'number' ? order.guests : 1
+      } else if (order && (order.status === OrderStatus.COMPLETED || order.status === OrderStatus.CANCELLED || order.status === OrderStatus.SETTLED)) {
+        toast.info('该桌上一单已结束，请开始新点餐')
       }
     }
 
@@ -221,7 +218,7 @@ async function submitOrder() {
             totalPrice: 0,
           }
 
-      const orderData: Partial<Order> = {
+      const orderData: CreateOrderPayload = {
         orderNo: generateOrderNo(),
         tableNo: tableNo.value,
         guests: guests.value,
@@ -245,7 +242,8 @@ async function submitOrder() {
     }
     clearCart()
     orderRemark.value = ''
-    setTimeout(() => {
+    if (successTimer) clearTimeout(successTimer)
+    successTimer = setTimeout(() => {
       showCart.value = false
       showSuccess.value = false
       successOrderNo.value = ''
@@ -337,8 +335,8 @@ async function submitOrder() {
           <div class="flex items-center gap-3">
             <div class="flex h-10 w-10 items-center justify-center rounded-full bg-orange-50 text-xl">👥</div>
             <div>
-              <div class="text-xs text-gray-500">用餐人数</div>
-              <div class="text-lg font-bold text-orange-600">{{ guests }}<span class="ml-0.5 text-sm font-medium text-gray-500">人</span></div>
+              <div class="text-sm font-medium text-gray-600">用餐人数</div>
+              <div class="text-2xl font-extrabold text-orange-600">{{ guests }}<span class="ml-0.5 text-base font-medium text-gray-500">人</span></div>
             </div>
           </div>
           <div class="flex items-center gap-2">
@@ -397,11 +395,11 @@ async function submitOrder() {
             :class="[
               'flex h-10 w-10 items-center justify-center rounded-xl text-lg transition-all',
               currentCategory === cat
-                ? 'bg-gradient-to-br ' + (categoryMeta[cat]?.gradient || 'from-gray-400 to-gray-500') + ' text-white shadow-md'
+                ? 'bg-gradient-to-br ' + (CATEGORY_META[cat]?.gradient || 'from-gray-400 to-gray-500') + ' text-white shadow-md'
                 : 'bg-gray-100',
             ]"
           >
-            {{ categoryMeta[cat]?.icon || '🍽️' }}
+            {{ CATEGORY_META[cat]?.icon || '🍽️' }}
           </span>
           <span :class="currentCategory === cat ? 'font-semibold' : ''">{{ cat }}</span>
         </button>
@@ -543,7 +541,7 @@ async function submitOrder() {
         </div>
         <div class="min-w-0 flex-1 cursor-pointer" @click="showCart = true">
           <div class="text-lg font-bold">
-            {{ MoneyCalculator.format(cartTotalQty > 0 ? (currentOrder ? cartTotalAmount : cartTotalAmount + cutleryTotal) : 0) }}
+            {{ MoneyCalculator.format(cartTotalQty > 0 ? cartTotalAmount + cutleryTotal : 0) }}
           </div>
           <div class="text-[10px] text-gray-400">
             {{ cartTotalQty > 0 ? `已选 ${cartTotalQty} 件${currentOrder ? '' : (cutleryTotal > 0 ? '，含餐具费' : tablewareDish ? '，免餐具费' : '')}` : (existingItems.length > 0 ? `已下单 ${existingItems.length} 道菜 · 点击加菜` : '购物车是空的') }}
@@ -554,7 +552,7 @@ async function submitOrder() {
           class="shrink-0 rounded-xl bg-gradient-to-r from-orange-500 to-red-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-orange-500/30 transition active:scale-95 disabled:opacity-40 disabled:active:scale-100"
           @click="showCart = true"
         >
-          {{ submitting ? '提交中...' : '去结算' }}
+          {{ submitting ? '提交中...' : '查看购物车' }}
         </button>
       </div>
     </div>
@@ -594,7 +592,7 @@ async function submitOrder() {
 
         <div class="px-5 pb-8 pt-2">
           <div class="mb-4 flex items-center justify-between">
-            <h3 class="text-lg font-bold text-gray-900">已选菜品</h3>
+            <h3 class="text-lg font-bold text-gray-900">我的购物车</h3>
             <button v-if="cart.length > 0" class="text-xs text-gray-500" @click="clearCart()">
               清空购物车
             </button>
@@ -750,12 +748,15 @@ async function submitOrder() {
             </div>
           </div>
 
+          <p class="mt-4 text-center text-xs text-gray-400">
+            提交后仍可继续加菜
+          </p>
           <button
             :disabled="submitting || cart.length === 0"
-            class="mt-5 w-full rounded-xl bg-gradient-to-r from-orange-500 to-red-500 py-3.5 text-base font-semibold text-white shadow-lg shadow-orange-500/30 transition active:scale-[0.98] disabled:opacity-40 disabled:active:scale-100"
+            class="mt-2 w-full rounded-xl bg-gradient-to-r from-orange-500 to-red-500 py-3.5 text-base font-semibold text-white shadow-lg shadow-orange-500/30 transition active:scale-[0.98] disabled:opacity-40 disabled:active:scale-100"
             @click="submitOrder"
           >
-            {{ submitting ? '提交中...' : (currentOrder ? '追加到订单' : '提交订单') }}
+            {{ submitting ? '提交中...' : (currentOrder ? '确认追加' : '确认下单') }}
           </button>
         </div>
 

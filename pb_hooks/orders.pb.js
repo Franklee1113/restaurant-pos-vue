@@ -6,6 +6,58 @@
  *       即使是 null 值也可能返回 length=0 的对象，因此解析前必须判断 raw && raw.length > 0
  */
 
+function parseJSONField(record, fieldName, defaultValue = []) {
+  try {
+    const raw = record.get(fieldName)
+    if (raw && raw.length > 0) {
+      let s = ''
+      for (let i = 0; i < raw.length; i++) {
+        s += String.fromCharCode(raw[i])
+      }
+      if (s.length > 0) {
+        return JSON.parse(s)
+      }
+    }
+  } catch (e) {
+    console.error('parseJSONField error (' + fieldName + '):', e)
+  }
+  return defaultValue
+}
+
+/**
+ * 从 dishes 集合获取餐具单价（category === '餐具'）
+ */
+function getCutleryUnitPrice() {
+  try {
+    const records = $app.dao().findRecordsByFilter('dishes', "category='餐具'", '', 1, 0)
+    if (records && records.length > 0) {
+      return records[0].get('price') || 0
+    }
+  } catch (e) {
+    console.error('getCutleryUnitPrice error:', e)
+  }
+  return 0
+}
+
+/**
+ * 根据餐具数量和 dishes 集合单价，重新计算 cutlery 金额
+ * 不信任前端传入的 cutlery.totalPrice
+ */
+function recalculateCutlery(record, cutlery) {
+  if (!cutlery || cutlery.quantity <= 0 || cutlery.type === 'free') {
+    return { cutleryTotalPrice: 0, updatedCutlery: cutlery }
+  }
+  const unitPrice = getCutleryUnitPrice()
+  const totalPrice = Math.round(cutlery.quantity * unitPrice * 100) / 100
+  const updatedCutlery = {
+    ...cutlery,
+    unitPrice: unitPrice,
+    totalPrice: totalPrice,
+  }
+  record.set('cutlery', JSON.stringify(updatedCutlery))
+  return { cutleryTotalPrice: totalPrice, updatedCutlery }
+}
+
 // ─────────────────────────────────────────────────────────────
 // 创建订单前：强制重算金额（不信任前端金额）
 // ─────────────────────────────────────────────────────────────
@@ -15,44 +67,24 @@ onRecordBeforeCreateRequest(
       const record = e.record
 
       // 解析 items
-      let items = []
-      const rawItems = record.get('items')
-      if (rawItems && rawItems.length > 0) {
-        let s = ''
-        for (let i = 0; i < rawItems.length; i++) {
-          s += String.fromCharCode(rawItems[i])
-        }
-        if (s.length > 0) {
-          items = JSON.parse(s)
-        }
-      }
+      let items = parseJSONField(record, 'items', [])
       if (!Array.isArray(items)) items = []
 
       // 解析 cutlery
-      let cutlery = null
-      const rawCutlery = record.get('cutlery')
-      if (rawCutlery && rawCutlery.length > 0) {
-        let s = ''
-        for (let i = 0; i < rawCutlery.length; i++) {
-          s += String.fromCharCode(rawCutlery[i])
-        }
-        if (s.length > 0) {
-          cutlery = JSON.parse(s)
-        }
-      }
+      let cutlery = parseJSONField(record, 'cutlery', null)
 
       const discountType = record.get('discountType') || 'amount'
-      const discountValue = record.get('discountValue') || 0
+      const rawDiscountValue = record.get('discountValue')
+      const discountValue = rawDiscountValue !== undefined && rawDiscountValue !== null ? rawDiscountValue : 0
 
-      // 金额计算（分）
+      // P1-21: 直接计算 price * 100 * quantity，避免先 round×10 导致的精度偏差
       let totalCents = 0
       for (let i = 0; i < items.length; i++) {
-        const priceCents = Math.round((items[i].price || 0) * 100)
-        const qty = Math.round((items[i].quantity || 0) * 10)
-        totalCents += Math.round((priceCents * qty) / 10)
+        totalCents += Math.round((items[i].price || 0) * 100 * (items[i].quantity || 0))
       }
-      if (cutlery && cutlery.totalPrice > 0) {
-        totalCents += Math.round(cutlery.totalPrice * 100)
+      const { cutleryTotalPrice } = recalculateCutlery(record, cutlery)
+      if (cutleryTotalPrice > 0) {
+        totalCents += Math.round(cutleryTotalPrice * 100)
       }
 
       let discountCents = 0
@@ -70,7 +102,7 @@ onRecordBeforeCreateRequest(
       record.set('discount', discountCents / 100)
       record.set('finalAmount', finalCents / 100)
     } catch (err) {
-      console.log('HOOK_BEFORE_CREATE_ERROR:', err)
+      console.error('HOOK_BEFORE_CREATE_ERROR:', err)
       throw err
     }
   },
@@ -89,39 +121,26 @@ onRecordBeforeUpdateRequest(
       const original = $app.dao().findRecordById('orders', record.id)
 
       // 解析新 items
-      let newItems = []
-      const rawNewItems = record.get('items')
-      if (rawNewItems && rawNewItems.length > 0) {
-        let s = ''
-        for (let i = 0; i < rawNewItems.length; i++) {
-          s += String.fromCharCode(rawNewItems[i])
-        }
-        if (s.length > 0) {
-          newItems = JSON.parse(s)
-        }
-      }
+      let newItems = parseJSONField(record, 'items', [])
       if (!Array.isArray(newItems)) newItems = []
 
       // 解析旧 items
-      let oldItems = []
-      const rawOldItems = original.get('items')
-      if (rawOldItems && rawOldItems.length > 0) {
-        let s = ''
-        for (let i = 0; i < rawOldItems.length; i++) {
-          s += String.fromCharCode(rawOldItems[i])
-        }
-        if (s.length > 0) {
-          oldItems = JSON.parse(s)
-        }
-      }
+      let oldItems = parseJSONField(original, 'items', [])
       if (!Array.isArray(oldItems)) oldItems = []
 
       const oldStatus = original.get('status')
 
-      // 检测是否有新菜品追加
+      // P1-26: 检测是否有新菜品追加（逐条比较 id+quantity，而非仅比较长度）
       let itemsAppended = false
       if (newItems.length > oldItems.length) {
         itemsAppended = true
+      } else if (newItems.length === oldItems.length) {
+        for (let i = 0; i < newItems.length; i++) {
+          if (newItems[i].dishId !== oldItems[i].dishId || newItems[i].quantity !== oldItems[i].quantity) {
+            itemsAppended = true
+            break
+          }
+        }
       }
 
       // 检测是否仅菜品状态发生变化
@@ -136,10 +155,16 @@ onRecordBeforeUpdateRequest(
         if (diffCount > 0) {
           itemStatusChanged = true
           // 追加菜品导致的状态回退允许修改
-          if (!itemsAppended && (oldStatus === 'completed' || oldStatus === 'cancelled')) {
+          // P1-27: 补充 serving 拦截，已结束/上菜中订单不允许修改菜品状态
+          if (!itemsAppended && (oldStatus === 'completed' || oldStatus === 'cancelled' || oldStatus === 'settled' || oldStatus === 'serving')) {
             throw new Error('订单已结束，不能修改菜品状态')
           }
         }
+      }
+
+      // 已取消订单不允许追加菜品
+      if (itemsAppended && oldStatus === 'cancelled') {
+        throw new Error('订单已取消，不能追加菜品')
       }
 
       // 如果有新菜品追加到已结束订单，重置为 pending 并重新开台
@@ -172,48 +197,33 @@ onRecordBeforeUpdateRequest(
             }
           }
         } catch (err) {
-          console.log('table_status re-open error:', err)
+          // P1-25: 重新开台失败让异常上浮，不再静默吞掉
+          console.error('table_status re-open error:', err)
+          throw new Error('重新开台失败: ' + err.message)
         }
       }
 
-      // 只要 items 有变化就重算金额
-      if (newItems.length > 0) {
+      // P1-22: 始终执行金额重算，即使 items 为空（删除全部菜品后金额应归零）
+      if (true) {
         // 解析 cutlery（优先新记录，再原记录）
-        let cutlery = null
-        const rawCutleryNew = record.get('cutlery')
-        if (rawCutleryNew && rawCutleryNew.length > 0) {
-          let s = ''
-          for (let i = 0; i < rawCutleryNew.length; i++) {
-            s += String.fromCharCode(rawCutleryNew[i])
-          }
-          if (s.length > 0) {
-            cutlery = JSON.parse(s)
-          }
-        }
+        let cutlery = parseJSONField(record, 'cutlery', null)
         if (!cutlery) {
-          const rawCutleryOld = original.get('cutlery')
-          if (rawCutleryOld && rawCutleryOld.length > 0) {
-            let s = ''
-            for (let i = 0; i < rawCutleryOld.length; i++) {
-              s += String.fromCharCode(rawCutleryOld[i])
-            }
-            if (s.length > 0) {
-              cutlery = JSON.parse(s)
-            }
-          }
+          cutlery = parseJSONField(original, 'cutlery', null)
         }
 
-        const discountType = record.get('discountType') || original.get('discountType') || 'amount'
-        const discountValue = record.get('discountValue') || original.get('discountValue') || 0
+        const discountType = record.get('discountType') !== undefined && record.get('discountType') !== null ? record.get('discountType') : (original.get('discountType') || 'amount')
+        const rawDiscountValue = record.get('discountValue')
+        const rawOriginalDiscountValue = original.get('discountValue')
+        const discountValue = rawDiscountValue !== undefined && rawDiscountValue !== null ? rawDiscountValue : (rawOriginalDiscountValue !== undefined && rawOriginalDiscountValue !== null ? rawOriginalDiscountValue : 0)
 
+        // P1-21: 直接计算 price * 100 * quantity
         let totalCents = 0
         for (let i = 0; i < newItems.length; i++) {
-          const priceCents = Math.round((newItems[i].price || 0) * 100)
-          const qty = Math.round((newItems[i].quantity || 0) * 10)
-          totalCents += Math.round((priceCents * qty) / 10)
+          totalCents += Math.round((newItems[i].price || 0) * 100 * (newItems[i].quantity || 0))
         }
-        if (cutlery && cutlery.totalPrice > 0) {
-          totalCents += Math.round(cutlery.totalPrice * 100)
+        const { cutleryTotalPrice } = recalculateCutlery(record, cutlery)
+        if (cutleryTotalPrice > 0) {
+          totalCents += Math.round(cutleryTotalPrice * 100)
         }
 
         let discountCents = 0
@@ -264,7 +274,7 @@ onRecordBeforeUpdateRequest(
         }
       }
     } catch (err) {
-      console.log('HOOK_BEFORE_UPDATE_ERROR:', err)
+      console.error('HOOK_BEFORE_UPDATE_ERROR:', err)
       throw err
     }
   },
@@ -293,6 +303,11 @@ onRecordAfterCreateRequest(
 
       if (records && records.length > 0) {
         const ts = records[0]
+        // P1-23: 检查桌台是否已被占用（已有未完成订单绑定）
+        const existingOrderId = ts.get('currentOrderId')
+        if (ts.get('status') === 'dining' && existingOrderId && existingOrderId !== record.id) {
+          throw new Error('该桌台已被占用，无法创建新订单')
+        }
         ts.set('status', 'dining')
         ts.set('currentOrderId', record.id)
         ts.set('openedAt', new Date().toISOString())
@@ -307,7 +322,7 @@ onRecordAfterCreateRequest(
         $app.dao().saveRecord(ts)
       }
     } catch (err) {
-      console.log('table_status sync error (create):', err)
+      console.error('table_status sync error (create):', err)
     }
   },
   'orders',
@@ -344,7 +359,7 @@ onRecordAfterUpdateRequest(
         }
       }
     } catch (err) {
-      console.log('table_status sync error (update):', err)
+      console.error('table_status sync error (update):', err)
     }
   },
   'orders',

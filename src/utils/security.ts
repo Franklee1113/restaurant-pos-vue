@@ -28,9 +28,15 @@ export function escapeHtml(text: unknown): string {
  */
 export function setSafeHtml(element: HTMLElement, html: string): void {
   if (!element) return
-  // 不再依赖不可靠的正则过滤，直接拒绝包含尖括号的内容
-  // 如果需要插入用户内容，应先调用 escapeHtml()
-  const hasUnescapedTags = /<(?!\s*\/?\s*(br|p|div|span|b|i|u|strong|em|h[1-6]|ul|ol|li|table|tr|td|th|thead|tbody|tfoot|colgroup|col|hr)\s*[^>]*>)/i
+  // 防御 XSS：拒绝任何包含属性的 HTML 标签（防止 onclick、onerror、style 等注入）
+  const hasAttributes = /<[a-z][^\s>/]*\s[^>]*>/i
+  if (hasAttributes.test(html)) {
+    console.warn('setSafeHtml: 检测到包含属性的 HTML，已降级为纯文本输出。')
+    element.textContent = html
+    return
+  }
+  // 只允许纯标签名（无属性）的白名单标签
+  const hasUnescapedTags = /<(?!\s*\/?\s*(br|p|div|span|b|i|u|strong|em|h[1-6]|ul|ol|li|table|tr|td|th|thead|tbody|tfoot|colgroup|col|hr)\s*\/?\s*>)/i
   if (hasUnescapedTags.test(html)) {
     console.warn('setSafeHtml: 检测到未转义的用户输入标签，已阻止插入。')
     element.textContent = html
@@ -103,10 +109,17 @@ export class MoneyCalculator {
   }
 
   /**
-   * 将分转换为元
+   * 将分转换为元（返回 number，注意二次运算可能产生浮点误差）
    */
   static toYuan(cents: number): number {
     return cents / 100
+  }
+
+  /**
+   * P1-28: 将分转换为元字符串，避免二次运算累积误差
+   */
+  static toYuanFixed(cents: number): string {
+    return (cents / 100).toFixed(2)
   }
 
   /**

@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { OrderAPI, TableStatusAPI, type Order } from '@/api/pocketbase'
+import { OrderAPI, PublicOrderAPI, TableStatusAPI, type Order, type OrderStatusValue } from '@/api/pocketbase'
 import { useSettingsStore } from '@/stores/settings.store'
-import { OrderStatus, StatusLabels, StatusFlow } from '@/utils/orderStatus'
+import { OrderStatus, StatusLabels, StatusFlow, StatusBadgeClass as statusBadgeClass } from '@/utils/orderStatus'
 import { MoneyCalculator } from '@/utils/security'
 import { getFileUrl } from '@/utils/assets'
 import { useToast } from '@/composables/useToast'
 import { globalConfirm } from '@/composables/useConfirm'
+import { useClearTable } from '@/composables/useClearTable'
 import { printBill, printKitchenTicket } from '@/utils/printBill'
+import { useBluetoothPrinter, isBluetoothPrintSupported, type BluetoothPrintOrder } from '@/composables/useBluetoothPrinter'
 import EmptyState from '@/components/EmptyState.vue'
 import SkeletonBox from '@/components/SkeletonBox.vue'
 
@@ -23,16 +25,16 @@ const loading = ref(false)
 const error = ref('')
 const showQrModal = ref(false)
 const processing = ref(false)
+const { checkCanClearTable, executeClearTable } = useClearTable()
 
-const statusBadgeClass: Record<string, string> = {
-  pending: 'bg-amber-50 text-amber-700 ring-amber-600/20',
-  cooking: 'bg-blue-50 text-blue-700 ring-blue-700/20',
-  serving: 'bg-purple-50 text-purple-700 ring-purple-700/20',
-  completed: 'bg-green-50 text-green-700 ring-green-600/20',
-  cancelled: 'bg-red-50 text-red-700 ring-red-600/20',
-}
+
 
 onMounted(() => {
+  loadOrder()
+})
+
+// P1-15: 组件复用时（route params 变化）自动刷新订单数据
+watch(orderId, () => {
   loadOrder()
 })
 
@@ -56,7 +58,38 @@ function handlePrintKitchen() {
   if (order.value) printKitchenTicket(order.value, settingsStore.settings)
 }
 
-async function updateStatus(newStatus: string) {
+// P3-4: 蓝牙打印
+const { print: printBluetooth, isConnecting: btConnecting, lastError: btError, connectedPrinter } = useBluetoothPrinter()
+
+async function handleBluetoothPrint() {
+  if (!order.value) return
+  const o = order.value
+  const printOrder: BluetoothPrintOrder = {
+    restaurantName: settingsStore.settings?.restaurantName || '智能点菜系统',
+    orderNo: o.orderNo,
+    tableNo: o.tableNo,
+    guests: o.guests || 1,
+    items: (o.items || []).map((i) => ({
+      name: i.name,
+      quantity: i.quantity,
+      price: i.price,
+      remark: i.remark,
+    })),
+    totalAmount: o.totalAmount || 0,
+    discount: o.discount || 0,
+    finalAmount: o.finalAmount || 0,
+    remark: o.remark || '',
+    created: o.created,
+  }
+  const ok = await printBluetooth(printOrder)
+  if (ok) {
+    toast.success('蓝牙打印已发送')
+  } else if (btError.value) {
+    toast.error(btError.value)
+  }
+}
+
+async function updateStatus(newStatus: OrderStatusValue) {
   if (!order.value || processing.value) return
   const statusName = StatusLabels[newStatus as keyof typeof StatusLabels]
   const ok = await globalConfirm.confirm({
@@ -120,20 +153,50 @@ async function confirmPaid() {
 
 async function clearTable() {
   if (!order.value || processing.value) return
-  const ok = await globalConfirm.confirm({
-    title: '确认强制清台',
-    description: `确定要清空 ${order.value.tableNo} 号桌的用餐状态吗？请确认此桌已结账完毕。此操作用于紧急情况，将立即释放桌位。`,
-    confirmText: '强制清台',
-    type: 'danger',
-  })
-  if (!ok) return
   processing.value = true
+  const tableNo = order.value.tableNo
+
   try {
-    const ts = await TableStatusAPI.getTableStatus(order.value.tableNo)
-    if (ts?.id) {
-      await TableStatusAPI.updateTableStatus(ts.id, { status: 'idle', currentOrderId: '' })
+    const { canClear, reason, tableStatus } = await checkCanClearTable(tableNo)
+
+    if (!canClear) {
+      if (reason === 'idle') {
+        await globalConfirm.confirm({
+          title: '无需清台',
+          description: `${tableNo} 号桌已经是空闲状态，无需重复清台。`,
+          confirmText: '知道了',
+          type: 'default',
+        })
+      } else if (reason === 'unfinished') {
+        await globalConfirm.confirm({
+          title: '不可清台',
+          description: `${tableNo} 号桌还有未完成订单，无法清台。请先将订单处理完毕后再清台。`,
+          confirmText: '知道了',
+          type: 'default',
+        })
+      } else if (reason === 'completed') {
+        await globalConfirm.confirm({
+          title: '不可清台',
+          description: '该订单已上菜完成但尚未结账，无法清台。请先将订单标记为「已结账」后再清台。',
+          confirmText: '知道了',
+          type: 'default',
+        })
+      }
+      return
     }
+
+    const ok = await globalConfirm.confirm({
+      title: '确认清台',
+      description: `确定要清空 ${tableNo} 号桌的用餐状态吗？请确认此桌已结账完毕。清台后将立即释放桌位。`,
+      confirmText: '清台',
+      type: 'danger',
+    })
+    if (!ok) return
+
+    await executeClearTable(tableStatus)
     toast.success('清台成功')
+    // P1-12: 清台成功后刷新订单详情
+    await loadOrder()
   } catch (err: unknown) {
     toast.error('清台失败: ' + (err instanceof Error ? err.message : '未知错误'))
   } finally {
@@ -194,7 +257,7 @@ async function clearTable() {
         </div>
         <div class="flex items-center gap-2 flex-wrap">
           <button
-            v-if="order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED"
+            v-if="order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.SETTLED"
             :disabled="processing"
             class="px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 shadow-sm active:scale-[0.98] transition-transform disabled:opacity-50"
             @click="showQrModal = true"
@@ -212,6 +275,20 @@ async function clearTable() {
             @click="handlePrintKitchen"
           >
             打印厨单
+          </button>
+          <!-- P3-4: 蓝牙打印 -->
+          <button
+            :disabled="!isBluetoothPrintSupported() || btConnecting"
+            :title="!isBluetoothPrintSupported() ? '蓝牙打印需要 HTTPS 环境（Chrome/Edge）' : connectedPrinter?.server.connected ? `已连接: ${connectedPrinter.name}` : '点击连接蓝牙打印机'"
+            class="px-3 py-2 rounded-lg text-sm font-medium active:scale-[0.98] transition-transform disabled:opacity-40 disabled:cursor-not-allowed"
+            :class="[
+              connectedPrinter?.server.connected
+                ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50',
+            ]"
+            @click="handleBluetoothPrint"
+          >
+            {{ btConnecting ? '连接中...' : (connectedPrinter?.server.connected ? '🖨️ 蓝牙打印' : '📡 蓝牙打印') }}
           </button>
           <button
             class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm active:scale-[0.98] transition-transform"
@@ -392,8 +469,9 @@ async function clearTable() {
               >
                 标记为{{ StatusLabels[status] }}
               </button>
+              <!-- P1-13: 取消按钮显示逻辑复用 StatusFlow，仅当允许 cancelled 流转时才显示 -->
               <button
-                v-if="order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.COMPLETED"
+                v-if="(StatusFlow[order.status as keyof typeof StatusFlow] || []).includes(OrderStatus.CANCELLED)"
                 :disabled="processing"
                 class="w-full px-3 py-2 rounded-lg text-sm font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 active:scale-[0.98] transition-transform disabled:opacity-50"
                 @click="updateStatus(OrderStatus.CANCELLED)"
@@ -405,9 +483,9 @@ async function clearTable() {
                 class="w-full px-3 py-2 rounded-lg text-sm font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 active:scale-[0.98] transition-transform disabled:opacity-50"
                 @click="clearTable"
               >
-                强制清台（{{ order.tableNo }}号桌）
+                清台（{{ order.tableNo }}号桌）
               </button>
-              <div v-if="(StatusFlow[order.status as keyof typeof StatusFlow] || []).length === 0 && (order.status === OrderStatus.CANCELLED || order.status === OrderStatus.COMPLETED)" class="text-sm text-gray-500">
+              <div v-if="(StatusFlow[order.status as keyof typeof StatusFlow] || []).length === 0 && (order.status === OrderStatus.CANCELLED || order.status === OrderStatus.COMPLETED || order.status === OrderStatus.SETTLED)" class="text-sm text-gray-500">
                 当前订单已结束，无需进一步操作
               </div>
             </div>

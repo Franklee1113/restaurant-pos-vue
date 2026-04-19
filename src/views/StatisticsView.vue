@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
-import { OrderAPI, type Order } from '@/api/pocketbase'
+import { OrderAPI, StatsAPI, type Order, type StatsResponse } from '@/api/pocketbase'
 import { OrderStatus, StatusLabels, StatusColors } from '@/utils/orderStatus'
 import { MoneyCalculator } from '@/utils/security'
 import { useToast } from '@/composables/useToast'
@@ -25,16 +25,19 @@ const chartInstances: Record<string, echarts.ECharts | null> = {
   status: null,
   hourly: null,
 }
+let isUnmounted = false
 
 onMounted(() => {
+  isUnmounted = false
   setDefaultDateRange()
   loadData().then(() => {
-    nextTick(initCharts)
+    if (!isUnmounted) nextTick(initCharts)
   })
   window.addEventListener('resize', resizeCharts)
 })
 
 onUnmounted(() => {
+  isUnmounted = true
   window.removeEventListener('resize', resizeCharts)
   Object.keys(chartInstances).forEach((key) => {
     const inst = chartInstances[key as keyof typeof chartInstances]
@@ -83,9 +86,45 @@ function sanitizeDateFilter(dateStr: string, timeStr: string): string | null {
   return isNaN(d.getTime()) ? null : d.toISOString()
 }
 
+async function loadAllOrders(filter: string): Promise<Order[]> {
+  const allOrders: Order[] = []
+  let page = 1
+  const perPage = 500
+  while (true) {
+    const res = await OrderAPI.getOrders(page, perPage, filter)
+    allOrders.push(...res.items)
+    if (res.items.length < perPage || page >= res.totalPages) break
+    page++
+    // 安全限制：最多拉取 10 页（5000 条），防止极端情况内存溢出
+    if (page > 10) {
+      console.warn('订单数据量超过 5000 条，统计可能不完整')
+      break
+    }
+  }
+  return allOrders
+}
+
+// P1-37: 后端聚合数据（优先），降级到客户端聚合
+const statsData = ref<StatsResponse | null>(null)
+const useBackendStats = ref(true)
+
 async function loadData() {
   loading.value = true
   try {
+    // 优先尝试后端聚合
+    if (useBackendStats.value) {
+      const backendStats = await StatsAPI.getStats(startDate.value, endDate.value)
+      if (backendStats) {
+        statsData.value = backendStats
+        loading.value = false
+        if (!isUnmounted) nextTick(updateCharts)
+        return
+      }
+      // 后端路由不存在，降级到客户端聚合
+      useBackendStats.value = false
+    }
+
+    // 客户端聚合（降级方案）
     const filters: string[] = []
     if (startDate.value) {
       const safeStart = sanitizeDateFilter(startDate.value, '00:00:00')
@@ -96,9 +135,10 @@ async function loadData() {
       if (safeEnd) filters.push(`created <= '${safeEnd}'`)
     }
     const filter = filters.join(' && ')
-    const res = await OrderAPI.getOrders(1, 500, filter)
-    orders.value = res.items
-    nextTick(updateCharts)
+    const allOrders = await loadAllOrders(filter)
+    orders.value = allOrders
+    statsData.value = null
+    if (!isUnmounted) nextTick(updateCharts)
   } catch (err: unknown) {
     toast.error('加载数据失败: ' + (err instanceof Error ? err.message : '未知错误'))
   } finally {
@@ -106,11 +146,70 @@ async function loadData() {
   }
 }
 
+// P1-37: stats 优先使用后端聚合数据，降级到客户端聚合
 const stats = computed(() => {
+  const backend = statsData.value
+  if (backend) {
+    const range = getDateRange()
+    const dailyStats: Record<string, { date: string; revenue: number; count: number }> = {}
+    range.forEach((d) => (dailyStats[d] = { date: d, revenue: 0, count: 0 }))
+    backend.daily.forEach((d) => {
+      if (dailyStats[d.date]) {
+        dailyStats[d.date]!.revenue = d.revenue
+        dailyStats[d.date]!.count = d.count
+      }
+    })
+
+    const hourlyStats = new Array(24).fill(0).map(() => ({ count: 0, revenue: 0 }))
+    backend.hourly.forEach((h) => {
+      if (h.hour >= 0 && h.hour < 24) {
+        hourlyStats[h.hour]!.count = h.count
+        hourlyStats[h.hour]!.revenue = h.revenue
+      }
+    })
+
+    const statusStats: Record<string, { count: number; label: string; color: string }> = {}
+    Object.values(OrderStatus).forEach((status) => {
+      const key = status as keyof typeof StatusLabels
+      statusStats[status] = { count: 0, label: StatusLabels[key], color: StatusColors[key] }
+    })
+    backend.status.forEach((s) => {
+      if (statusStats[s.status]) statusStats[s.status]!.count = s.count
+    })
+
+    const dishStats: Record<string, { name: string; quantity: number; revenue: number }> = {}
+    backend.dishes.forEach((d) => {
+      dishStats[d.name] = { name: d.name, quantity: d.quantity, revenue: d.revenue }
+    })
+
+    const tableStats: Record<string, { tableNo: string; revenue: number; count: number }> = {}
+    backend.tables.forEach((t) => {
+      tableStats[t.tableNo] = { tableNo: t.tableNo, revenue: t.revenue, count: t.count }
+    })
+
+    const days = Object.keys(dailyStats).length || 1
+    return {
+      totalRevenue: backend.totalRevenue,
+      totalOrders: backend.totalOrders,
+      settledOrders: backend.settledOrders,
+      completedOrders: backend.completedOrders,
+      cancelledOrders: backend.cancelledOrders,
+      averageOrderValue: backend.averageOrderValue,
+      dailyAverageRevenue: backend.totalRevenue / days,
+      dailyStats,
+      hourlyStats,
+      dishStats,
+      statusStats,
+      tableStats,
+    }
+  }
+
+  // 客户端聚合（降级方案）
   const s = {
     totalRevenue: 0,
     totalOrders: orders.value.length,
-    validOrders: 0,
+    settledOrders: 0,
+    completedOrders: 0,
     cancelledOrders: 0,
     averageOrderValue: 0,
     dailyAverageRevenue: 0,
@@ -121,7 +220,6 @@ const stats = computed(() => {
     tableStats: {} as Record<string, { tableNo: string; revenue: number; count: number }>,
   }
 
-  // init date range
   const range = getDateRange()
   range.forEach((d) => (s.dailyStats[d] = { date: d, revenue: 0, count: 0 }))
 
@@ -137,9 +235,9 @@ const stats = computed(() => {
 
     if (s.statusStats[order.status]) s.statusStats[order.status]!.count++
 
-    if (order.status !== OrderStatus.CANCELLED) {
+    if (order.status === OrderStatus.SETTLED) {
       s.totalRevenue += amount
-      s.validOrders++
+      s.settledOrders++
       const daily = s.dailyStats[dateKey]
       if (daily) {
         daily.revenue += amount
@@ -161,12 +259,14 @@ const stats = computed(() => {
           s.dishStats[name].revenue += MoneyCalculator.calculate([{ price: item.price || 0, quantity: item.quantity || 0 }], 0).total
         })
       }
-    } else {
+    } else if (order.status === OrderStatus.COMPLETED) {
+      s.completedOrders++
+    } else if (order.status === OrderStatus.CANCELLED) {
       s.cancelledOrders++
     }
   })
 
-  s.averageOrderValue = s.validOrders > 0 ? s.totalRevenue / s.validOrders : 0
+  s.averageOrderValue = s.settledOrders > 0 ? s.totalRevenue / s.settledOrders : 0
   const days = Object.keys(s.dailyStats).length || 1
   s.dailyAverageRevenue = s.totalRevenue / days
   return s
@@ -318,17 +418,19 @@ function updateCharts() {
       <div class="bg-gradient-to-br from-indigo-500 to-purple-600 text-white p-5 rounded-lg shadow">
         <div class="text-sm opacity-90 mb-1">总营业额</div>
         <div class="text-2xl font-bold">¥{{ stats.totalRevenue.toFixed(2) }}</div>
-        <div class="text-xs opacity-80 mt-1">{{ stats.validOrders }} 笔有效订单</div>
+        <div class="text-xs opacity-80 mt-1">{{ stats.settledOrders }} 笔已结账</div>
       </div>
       <div class="bg-gradient-to-br from-emerald-500 to-green-400 text-white p-5 rounded-lg shadow">
         <div class="text-sm opacity-90 mb-1">客单价</div>
         <div class="text-2xl font-bold">¥{{ stats.averageOrderValue.toFixed(2) }}</div>
-        <div class="text-xs opacity-80 mt-1">平均每单消费</div>
+        <div class="text-xs opacity-80 mt-1">已结账订单均价</div>
       </div>
       <div class="bg-gradient-to-br from-pink-400 to-rose-500 text-white p-5 rounded-lg shadow">
-        <div class="text-sm opacity-90 mb-1">总订单数</div>
+        <div class="text-sm opacity-90 mb-1">订单汇总</div>
         <div class="text-2xl font-bold">{{ stats.totalOrders }}</div>
-        <div class="text-xs opacity-80 mt-1">含 {{ stats.cancelledOrders }} 笔取消</div>
+        <div class="text-xs opacity-80 mt-1">
+          {{ stats.settledOrders }} 已结账 / {{ stats.completedOrders }} 上菜完成 / {{ stats.cancelledOrders }} 取消
+        </div>
       </div>
       <div class="bg-gradient-to-br from-sky-400 to-cyan-400 text-white p-5 rounded-lg shadow">
         <div class="text-sm opacity-90 mb-1">日均营业额</div>

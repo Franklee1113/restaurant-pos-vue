@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { OrderAPI, DishAPI, type Order, type Dish, type OrderItem } from '@/api/pocketbase'
+import { OrderAPI, DishAPI, type Order, type Dish, type OrderItem, type CreateOrderPayload } from '@/api/pocketbase'
 import { useSettingsStore } from '@/stores/settings.store'
 import { OrderStatus, generateOrderNo } from '@/utils/orderStatus'
 import { MoneyCalculator, Validators } from '@/utils/security'
@@ -11,6 +11,7 @@ import CutleryConfigPanel from '@/components/CutleryConfigPanel.vue'
 import CartPanel from '@/components/CartPanel.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import SkeletonBox from '@/components/SkeletonBox.vue'
+import { DISH_RULES, HOT_DISHES } from '@/config/dish.config'
 
 const route = useRoute()
 const router = useRouter()
@@ -41,20 +42,17 @@ const cutleryType = ref<CutleryTypeValue>(CutleryType.CHARGED)
 const cutleryQty = ref<number>(0)
 const cutleryExpanded = ref(false)
 
-const DISH_RULES: Record<string, { add: string; qty: number }> = {
-  '铁锅鱼': { add: '锅底', qty: 1 },
-  '铁锅炖鱼': { add: '锅底', qty: 1 },
-}
-
-const hotDishes = new Set(['铁锅鱼', '锅底', '铁锅鸡', '铁锅排骨', '铁锅炖鱼'])
-
-const filteredDishes = computed(() => {
-  let list = [...dishes.value].sort((a, b) => {
-    const ha = hotDishes.has(a.name) ? 0 : 1
-    const hb = hotDishes.has(b.name) ? 0 : 1
+const sortedDishes = computed(() => {
+  return [...dishes.value].sort((a, b) => {
+    const ha = HOT_DISHES.has(a.name) ? 0 : 1
+    const hb = HOT_DISHES.has(b.name) ? 0 : 1
     if (ha !== hb) return ha - hb
     return a.name.localeCompare(b.name, 'zh-CN')
   })
+})
+
+const filteredDishes = computed(() => {
+  let list = sortedDishes.value
   if (currentCategory.value) {
     list = list.filter((d) => d.category === currentCategory.value)
   }
@@ -232,7 +230,7 @@ async function submit() {
       name: item.name,
       price: item.price,
       quantity: item.quantity,
-      status: 'pending',
+      status: isEdit.value ? (item.status || 'pending') : 'pending',
     })),
     discountType: discountType.value,
     discountValue: discountValue.value,
@@ -258,7 +256,7 @@ async function submit() {
     return
   }
 
-  const orderData: Partial<Order> = {
+  const orderData: CreateOrderPayload = {
     tableNo: Validators.sanitizeString(tableNo.value, 50),
     guests: guests.value,
     items: cart.value.map((item) => ({
@@ -424,7 +422,7 @@ async function submit() {
             >
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1">
-                  <span v-if="hotDishes.has(dish.name)" class="text-xs">🔥</span>
+                  <span v-if="HOT_DISHES.has(dish.name)" class="text-xs">🔥</span>
                   <div class="font-medium text-gray-800 text-sm truncate">{{ dish.name }}</div>
                 </div>
                 <div class="text-xs text-gray-500 truncate">{{ dish.description || dish.category }}</div>
@@ -446,7 +444,7 @@ async function submit() {
               class="bg-gray-50 rounded-xl p-3 text-center hover:shadow-md hover:-translate-y-0.5 transition-all border border-transparent hover:border-blue-300"
             >
               <div class="flex items-center justify-center gap-1 mb-1">
-                <span v-if="hotDishes.has(dish.name)" class="text-xs">🔥</span>
+                <span v-if="HOT_DISHES.has(dish.name)" class="text-xs">🔥</span>
                 <div class="font-semibold text-gray-800 text-sm truncate">{{ dish.name }}</div>
               </div>
               <div class="text-xs text-gray-500 truncate mb-2">{{ dish.description || dish.category }}</div>

@@ -12,12 +12,19 @@ export function useAutoRefresh(
   const { interval = 30000, immediate = true } = options
   let timer: ReturnType<typeof setInterval> | null = null
   const isRunning = ref(false)
+  let isVisible = true
+
+  function tick() {
+    if (isVisible) {
+      callback()
+    }
+  }
 
   function start() {
     stop()
     if (interval > 0) {
       timer = setInterval(() => {
-        callback()
+        tick()
       }, interval)
       isRunning.value = true
     }
@@ -31,14 +38,24 @@ export function useAutoRefresh(
     isRunning.value = false
   }
 
+  function onVisibilityChange() {
+    isVisible = !document.hidden
+    // 从隐藏恢复时立即执行一次，确保数据最新
+    if (isVisible && isRunning.value) {
+      callback()
+    }
+  }
+
   onMounted(() => {
     if (immediate) {
       start()
     }
+    document.addEventListener('visibilitychange', onVisibilityChange)
   })
 
   onUnmounted(() => {
     stop()
+    document.removeEventListener('visibilitychange', onVisibilityChange)
   })
 
   return {

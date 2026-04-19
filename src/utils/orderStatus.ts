@@ -10,6 +10,7 @@ export const OrderStatus = {
   COOKING: 'cooking',
   SERVING: 'serving',
   COMPLETED: 'completed',
+  SETTLED: 'settled',
   CANCELLED: 'cancelled',
 } as const
 
@@ -19,7 +20,8 @@ export const StatusLabels: Record<OrderStatusValue, string> = {
   [OrderStatus.PENDING]: '待确认',
   [OrderStatus.COOKING]: '制作中',
   [OrderStatus.SERVING]: '待上菜',
-  [OrderStatus.COMPLETED]: '已完成',
+  [OrderStatus.COMPLETED]: '上菜完成',
+  [OrderStatus.SETTLED]: '已结账',
   [OrderStatus.CANCELLED]: '已取消',
 }
 
@@ -28,6 +30,7 @@ export const StatusColors: Record<OrderStatusValue, string> = {
   [OrderStatus.COOKING]: '#1890ff',
   [OrderStatus.SERVING]: '#722ed1',
   [OrderStatus.COMPLETED]: '#52c41a',
+  [OrderStatus.SETTLED]: '#059669',
   [OrderStatus.CANCELLED]: '#f5222d',
 }
 
@@ -35,8 +38,18 @@ export const StatusFlow: Record<OrderStatusValue, OrderStatusValue[]> = {
   [OrderStatus.PENDING]: [OrderStatus.COOKING, OrderStatus.CANCELLED],
   [OrderStatus.COOKING]: [OrderStatus.SERVING, OrderStatus.CANCELLED],
   [OrderStatus.SERVING]: [OrderStatus.COMPLETED],
-  [OrderStatus.COMPLETED]: [],
+  [OrderStatus.COMPLETED]: [OrderStatus.SETTLED],
+  [OrderStatus.SETTLED]: [],
   [OrderStatus.CANCELLED]: [],
+}
+
+export const StatusBadgeClass: Record<OrderStatusValue, string> = {
+  [OrderStatus.PENDING]: 'bg-amber-50 text-amber-700 ring-amber-600/20',
+  [OrderStatus.COOKING]: 'bg-blue-50 text-blue-700 ring-blue-700/20',
+  [OrderStatus.SERVING]: 'bg-purple-50 text-purple-700 ring-purple-700/20',
+  [OrderStatus.COMPLETED]: 'bg-green-50 text-green-700 ring-green-600/20',
+  [OrderStatus.SETTLED]: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
+  [OrderStatus.CANCELLED]: 'bg-red-50 text-red-700 ring-red-600/20',
 }
 
 /**
@@ -84,7 +97,7 @@ export function getStatusButtons(status: OrderStatusValue): Array<{
     let type: 'default' | 'primary' | 'danger' | 'success' = 'default'
     if (nextStatus === OrderStatus.CANCELLED) {
       type = 'danger'
-    } else if (nextStatus === OrderStatus.COMPLETED) {
+    } else if (nextStatus === OrderStatus.COMPLETED || nextStatus === OrderStatus.SETTLED) {
       type = 'success'
     } else {
       type = 'primary'

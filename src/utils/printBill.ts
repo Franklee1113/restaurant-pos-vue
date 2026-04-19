@@ -15,7 +15,11 @@ function getQrImageUrl(settings: Settings | null, field: 'wechatPayQr' | 'alipay
   return getFileUrl('settings', settings?.id, settings?.[field])
 }
 
-export function generateBillHTML(order: Order, settings: Settings | null): string {
+export function generateBillHTML(order: Order, settings: Settings | null, paperWidth: '58mm' | '80mm' = '80mm'): string {
+  const pageSize = paperWidth === '58mm' ? '58mm' : '80mm'
+  const bodyWidth = paperWidth === '58mm' ? '58mm' : '80mm'
+  const fontSize = paperWidth === '58mm' ? '11px' : '12px'
+  const smallFont = paperWidth === '58mm' ? '10px' : '11px'
   const restaurantName = escapeHtml(settings?.restaurantName || '智能点菜系统')
   const address = escapeHtml(settings?.address || '')
   const phone = escapeHtml(settings?.phone || '')
@@ -59,10 +63,10 @@ export function generateBillHTML(order: Order, settings: Settings | null): strin
     ? `<div style="margin:8px 0;padding:6px;border:1px dashed #999;font-size:12px;"><strong>备注:</strong> ${escapeHtml(order.remark)}</div>`
     : ''
 
-  // 计算菜品小计（从总金额中减去餐具费）
-  const dishesTotal = cutlery && cutlery.type === 'charged' 
-    ? (order.totalAmount || 0) - cutlery.totalPrice 
-    : (order.totalAmount || 0)
+  // P1-29: 使用整数分计算菜品小计，避免浮点减法误差
+  const totalCents = MoneyCalculator.toCents(order.totalAmount || 0)
+  const cutleryCents = cutlery && cutlery.type === 'charged' ? MoneyCalculator.toCents(cutlery.totalPrice) : 0
+  const dishesTotal = MoneyCalculator.toYuan(Math.max(0, totalCents - cutleryCents))
 
   // 收款码
   const wechatQr = getQrImageUrl(settings, 'wechatPayQr')
@@ -88,8 +92,8 @@ export function generateBillHTML(order: Order, settings: Settings | null): strin
   <title>账单 - ${orderNo}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    @page { size: 80mm auto; margin: 0; }
-    body { font-family: 'Courier New', 'Microsoft YaHei', monospace; font-size: 12px; line-height: 1.4; padding: 8px; width: 80mm; margin: 0 auto; }
+    @page { size: ${pageSize} auto; margin: 0; }
+    body { font-family: 'Courier New', 'Microsoft YaHei', monospace; font-size: ${fontSize}; line-height: 1.4; padding: 8px; width: ${bodyWidth}; margin: 0 auto; }
     .header { text-align: center; margin-bottom: 8px; border-bottom: 1px dashed #000; padding-bottom: 8px; }
     .restaurant-name { font-size: 18px; font-weight: bold; margin-bottom: 4px; }
     .info { margin-bottom: 8px; }

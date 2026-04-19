@@ -1,16 +1,14 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
-
-const TOKEN_KEY = 'pb_token'
-const USER_KEY = 'pb_user'
+import { STORAGE_KEY_TOKEN, STORAGE_KEY_USER, API_AUTH_WITH_PASSWORD } from '@/constants/index'
 
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref<string | null>(localStorage.getItem(TOKEN_KEY))
+  const token = ref<string | null>(localStorage.getItem(STORAGE_KEY_TOKEN))
   const user = ref<Record<string, unknown> | null>(null)
   const isLoggingIn = ref(false)
 
   try {
-    const raw = localStorage.getItem(USER_KEY)
+    const raw = localStorage.getItem(STORAGE_KEY_USER)
     if (raw) {
       const parsed = JSON.parse(raw)
       // 防止原型链污染
@@ -30,15 +28,15 @@ export const useAuthStore = defineStore('auth', () => {
     delete (newUser as any).constructor
     token.value = newToken
     user.value = newUser
-    localStorage.setItem(TOKEN_KEY, newToken)
-    localStorage.setItem(USER_KEY, JSON.stringify(newUser))
+    localStorage.setItem(STORAGE_KEY_TOKEN, newToken)
+    localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(newUser))
   }
 
   function clearAuth() {
     token.value = null
     user.value = null
-    localStorage.removeItem(TOKEN_KEY)
-    localStorage.removeItem(USER_KEY)
+    localStorage.removeItem(STORAGE_KEY_TOKEN)
+    localStorage.removeItem(STORAGE_KEY_USER)
   }
 
   async function login(email: string, password: string) {
@@ -47,7 +45,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
     isLoggingIn.value = true
     try {
-      const res = await fetch('/api/collections/users/auth-with-password', {
+      const res = await fetch(API_AUTH_WITH_PASSWORD, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identity: email, password }),

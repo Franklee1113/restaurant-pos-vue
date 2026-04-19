@@ -9,10 +9,9 @@ on:
       environment:
         description: '部署环境'
         required: true
-        default: 'staging'
+        default: 'production'
         type: choice
         options:
-          - staging
           - production
 
 jobs:
@@ -21,9 +20,9 @@ jobs:
     uses: ./.github/workflows/ci.yml
 
   deploy:
-    name: Deploy to Server
+    name: Deploy to Production Server
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment || 'staging' }}
+    environment: production
     needs: ci
     if: github.ref == 'refs/heads/main'
     steps:
@@ -41,19 +40,48 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Example: Deploy via SSH + rsync
-      # Uncomment and configure secrets to enable automatic deployment
-      #
-      # - name: Deploy to server
-      #   uses: easingthemes/ssh-deploy@main
-      #   env:
-      #     SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-      #     ARGS: "-rlgoDzvc -i --delete"
-      #     SOURCE: "dist/"
-      #     REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
-      #     REMOTE_USER: ${{ secrets.REMOTE_USER }}
-      #     TARGET: "/var/www/restaurant-pos"
-      #     EXCLUDE: "/dist/, /node_modules/"
+      # 打包前端构建产物
+      - name: Package frontend
+        run: |
+          cd dist
+          tar czf ../deploy-dist.tar.gz *
+          cd ..
+          ls -lh deploy-dist.tar.gz
 
-      - name: Build artifact ready
-        run: echo "Build completed. dist/ folder is ready for deployment."
+      # 打包 pb_hooks
+      - name: Package hooks
+        run: |
+          cd pb_hooks
+          tar czf ../deploy-hooks.tar.gz *.pb.js
+          cd ..
+          ls -lh deploy-hooks.tar.gz
+
+      # 上传前端到服务器 /tmp/
+      - name: Deploy frontend to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.REMOTE_HOST }}
+          username: deploy
+          key: ${{ secrets.DEPLOY_KEY }}
+          source: 'deploy-dist.tar.gz'
+          target: '/tmp/'
+
+      # 上传 hooks 到服务器 /tmp/
+      - name: Deploy hooks to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.REMOTE_HOST }}
+          username: deploy
+          key: ${{ secrets.DEPLOY_KEY }}
+          source: 'deploy-hooks.tar.gz'
+          target: '/tmp/'
+
+      # 执行部署脚本
+      - name: Execute deployment
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.REMOTE_HOST }}
+          username: deploy
+          key: ${{ secrets.DEPLOY_KEY }}
+          script: |
+            /opt/pocketbase/scripts/deploy-ci.sh

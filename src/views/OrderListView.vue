@@ -2,15 +2,16 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import * as XLSX from 'xlsx'
-import { OrderAPI, TableStatusAPI, type Order, escapePbString } from '@/api/pocketbase'
+import { OrderAPI, PublicOrderAPI, TableStatusAPI, type Order, type TableStatus, escapePbString } from '@/api/pocketbase'
 import { useSettingsStore } from '@/stores/settings.store'
-import { OrderStatus, StatusLabels, getStatusButtons, type OrderStatusValue } from '@/utils/orderStatus'
+import { OrderStatus, StatusLabels, getStatusButtons, type OrderStatusValue, StatusBadgeClass as statusBadgeClass } from '@/utils/orderStatus'
 import { MoneyCalculator } from '@/utils/security'
 import { useToast } from '@/composables/useToast'
 import { globalConfirm } from '@/composables/useConfirm'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { usePagination } from '@/composables/usePagination'
 import { useDebounce } from '@/composables/useDebounce'
+import { useClearTable } from '@/composables/useClearTable'
 import EmptyState from '@/components/EmptyState.vue'
 import SkeletonBox from '@/components/SkeletonBox.vue'
 
@@ -19,14 +20,26 @@ const settingsStore = useSettingsStore()
 const toast = useToast()
 
 const orders = ref<Order[]>([])
+const tableStatuses = ref<TableStatus[]>([])
 const loading = ref(false)
+const processing = ref(false)
 const searchKeyword = ref('')
+
+const { checkCanClearTable, executeClearTable } = useClearTable()
 let lastOrderIds = ''
 
 const filter = ref({
   status: '' as '' | OrderStatusValue,
   tableNo: '',
   date: '',
+})
+
+const tableStatusMap = computed(() => {
+  const map = new Map<string, TableStatus>()
+  tableStatuses.value.forEach((ts) => {
+    if (ts.tableNo) map.set(ts.tableNo, ts)
+  })
+  return map
 })
 
 const { currentPage, totalPages, visiblePages, goToPage, reset: resetPage, setTotal } = usePagination(1)
@@ -41,6 +54,7 @@ const statusOptions = [
   { value: OrderStatus.COOKING, label: StatusLabels[OrderStatus.COOKING] },
   { value: OrderStatus.SERVING, label: StatusLabels[OrderStatus.SERVING] },
   { value: OrderStatus.COMPLETED, label: StatusLabels[OrderStatus.COMPLETED] },
+  { value: OrderStatus.SETTLED, label: StatusLabels[OrderStatus.SETTLED] },
   { value: OrderStatus.CANCELLED, label: StatusLabels[OrderStatus.CANCELLED] },
 ]
 
@@ -52,9 +66,15 @@ const pendingTableNumbers = computed(() => {
   return Array.from(set)
 })
 
+// P1-18: 使用时区安全的日期比较
+function getLocalDateKey(dateStr: string): string {
+  const d = new Date(dateStr)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 const stats = computed(() => {
-  const todayStr = new Date().toDateString()
-  const todayOrders = orders.value.filter((o) => new Date(o.created).toDateString() === todayStr)
+  const todayStr = getLocalDateKey(new Date().toISOString())
+  const todayOrders = orders.value.filter((o) => getLocalDateKey(o.created) === todayStr)
   const pendingOrders = orders.value.filter(
     (o) => o.status === OrderStatus.PENDING || o.status === OrderStatus.COOKING,
   )
@@ -96,11 +116,14 @@ function buildFilterString() {
 async function fetchOrders(silent = false) {
   if (!silent) loading.value = true
   try {
-    const filterStr = buildFilterString()
-    const res = await OrderAPI.getOrders(currentPage.value, 20, filterStr)
-    orders.value = res.items
-    setTotal(res.totalItems || res.items.length)
-    lastOrderIds = res.items.map((o) => o.id + o.status).join(',')
+    const [orderRes, tsRes] = await Promise.all([
+      OrderAPI.getOrders(currentPage.value, 20, buildFilterString()),
+      TableStatusAPI.getAllTableStatuses(),
+    ])
+    orders.value = orderRes.items
+    tableStatuses.value = tsRes
+    setTotal(orderRes.totalItems || orderRes.items.length)
+    lastOrderIds = orderRes.items.map((o) => o.id + o.status).join(',')
   } catch (err: unknown) {
     if (!silent) toast.error('加载订单失败: ' + (err instanceof Error ? err.message : '未知错误'))
   } finally {
@@ -110,24 +133,28 @@ async function fetchOrders(silent = false) {
 
 async function silentRefresh() {
   try {
-    const filterStr = buildFilterString()
-    const res = await OrderAPI.getOrders(currentPage.value, 20, filterStr)
+    const [res, tsRes] = await Promise.all([
+      OrderAPI.getOrders(currentPage.value, 20, buildFilterString()),
+      TableStatusAPI.getAllTableStatuses(),
+    ])
     const newIds = res.items.map((o) => o.id + o.status).join(',')
     const hasNewOrder = res.items.some((o) => !orders.value.find((old) => old.id === o.id))
-    const hasCompleted = res.items.some(
-      (o) => o.status === OrderStatus.COMPLETED && !orders.value.find((old) => old.id === o.id && old.status === OrderStatus.COMPLETED),
+    const hasSettled = res.items.some(
+      (o) => o.status === OrderStatus.SETTLED && !orders.value.find((old) => old.id === o.id && old.status === OrderStatus.SETTLED),
     )
 
     if (newIds !== lastOrderIds) {
       orders.value = res.items
+      tableStatuses.value = tsRes
       setTotal(res.totalItems || res.items.length)
       lastOrderIds = newIds
-      if (hasNewOrder || hasCompleted) {
+      if (hasNewOrder || hasSettled) {
         playNotificationSound()
       }
     }
-  } catch {
-    // silent fail on auto refresh
+  } catch (err: unknown) {
+    // P1-19: silentRefresh 失败时输出警告，便于排查
+    console.warn('[silentRefresh] 自动刷新失败:', err instanceof Error ? err.message : '未知错误')
   }
 }
 
@@ -213,7 +240,7 @@ async function deleteOrder(order: Order) {
   }
 }
 
-async function updateStatus(order: Order, toStatus: string) {
+async function updateStatus(order: Order, toStatus: OrderStatusValue) {
   const statusName = StatusLabels[toStatus as keyof typeof StatusLabels]
   const ok = await globalConfirm.confirm({
     title: '确认变更状态',
@@ -232,22 +259,52 @@ async function updateStatus(order: Order, toStatus: string) {
 }
 
 async function clearTable(tableNo: string) {
-  const ok = await globalConfirm.confirm({
-    title: '确认强制清台',
-    description: `确定要清空 ${tableNo} 号桌的用餐状态吗？请确认此桌已结账完毕。此操作用于紧急情况，将立即释放桌位。`,
-    confirmText: '强制清台',
-    type: 'danger',
-  })
-  if (!ok) return
+  if (processing.value) return
+  processing.value = true
   try {
-    const ts = await TableStatusAPI.getTableStatus(tableNo)
-    if (ts?.id) {
-      await TableStatusAPI.updateTableStatus(ts.id, { status: 'idle', currentOrderId: '' })
+    const { canClear, reason, tableStatus } = await checkCanClearTable(tableNo)
+
+    if (!canClear) {
+      if (reason === 'idle') {
+        await globalConfirm.confirm({
+          title: '无需清台',
+          description: `${tableNo} 号桌已经是空闲状态，无需重复清台。`,
+          confirmText: '知道了',
+          type: 'default',
+        })
+      } else if (reason === 'unfinished') {
+        await globalConfirm.confirm({
+          title: '不可清台',
+          description: `${tableNo} 号桌还有未完成订单，无法清台。请先将订单处理完毕后再清台。`,
+          confirmText: '知道了',
+          type: 'default',
+        })
+      } else if (reason === 'completed') {
+        await globalConfirm.confirm({
+          title: '不可清台',
+          description: `${tableNo} 号桌订单已上菜完成但尚未结账，无法清台。请先将订单标记为「已结账」后再清台。`,
+          confirmText: '知道了',
+          type: 'default',
+        })
+      }
+      return
     }
+
+    const ok = await globalConfirm.confirm({
+      title: '确认清台',
+      description: `确定要清空 ${tableNo} 号桌的用餐状态吗？请确认此桌已结账完毕。清台后将立即释放桌位。`,
+      confirmText: '清台',
+      type: 'danger',
+    })
+    if (!ok) return
+
+    await executeClearTable(tableStatus)
     toast.success(`${tableNo} 号桌已清台`)
     await loadOrders()
   } catch (err: unknown) {
     toast.error('清台失败: ' + (err instanceof Error ? err.message : '未知错误'))
+  } finally {
+    processing.value = false
   }
 }
 
@@ -271,13 +328,7 @@ function primaryAction(order: Order) {
   return getActionButtons(order)[0] || null
 }
 
-const statusBadgeClass: Record<OrderStatusValue, string> = {
-  pending: 'bg-amber-50 text-amber-700 ring-amber-600/20',
-  cooking: 'bg-blue-50 text-blue-700 ring-blue-700/20',
-  serving: 'bg-purple-50 text-purple-700 ring-purple-700/20',
-  completed: 'bg-green-50 text-green-700 ring-green-600/20',
-  cancelled: 'bg-red-50 text-red-700 ring-red-600/20',
-}
+
 
 function exportExcel() {
   if (orders.value.length === 0) {
@@ -453,13 +504,14 @@ function exportExcel() {
             <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase w-14">菜品数</th>
             <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase w-20">金额</th>
             <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase w-24">状态</th>
+            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase w-20">桌台状态</th>
             <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase w-24">创建时间</th>
             <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase w-60">操作</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-200">
           <tr v-if="loading && orders.length === 0">
-            <td colspan="8" class="px-3 py-6">
+            <td colspan="9" class="px-3 py-6">
               <div class="space-y-3">
                 <div v-for="i in 5" :key="i" class="flex gap-3">
                   <SkeletonBox width="120px" height="16px" />
@@ -475,7 +527,7 @@ function exportExcel() {
             </td>
           </tr>
           <tr v-else-if="orders.length === 0">
-            <td colspan="8">
+            <td colspan="9">
               <EmptyState title="暂无订单" description="当前筛选条件下没有找到订单，试试调整筛选条件或新建订单" icon="📭">
                 <button class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700" @click="$router.push({ name: 'createOrder' })">
                   新建订单
@@ -504,6 +556,14 @@ function exportExcel() {
                   顾客
                 </span>
               </div>
+            </td>
+            <td class="px-3 py-3">
+              <span
+                class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset"
+                :class="tableStatusMap.get(order.tableNo)?.status === 'idle' ? 'bg-gray-50 text-gray-600 ring-gray-500/20' : 'bg-orange-50 text-orange-600 ring-orange-500/20'"
+              >
+                {{ tableStatusMap.get(order.tableNo)?.status === 'idle' ? '已清台' : '占用中' }}
+              </span>
             </td>
             <td class="px-3 py-3 text-sm text-gray-500">{{ formatDate(order.created) }}</td>
             <td class="px-3 py-3 text-sm">
@@ -581,6 +641,15 @@ function exportExcel() {
           <div>人数: <span class="text-gray-900 font-medium">{{ order.guests || 1 }}人</span></div>
           <div>菜品: <span class="text-gray-900 font-medium">{{ order.items?.length || 0 }}道</span></div>
           <div>金额: <span class="text-red-500 font-medium">{{ MoneyCalculator.format(order.finalAmount || 0) }}</span></div>
+          <div>
+            桌台状态:
+            <span
+              class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset"
+              :class="tableStatusMap.get(order.tableNo)?.status === 'idle' ? 'bg-gray-50 text-gray-600 ring-gray-500/20' : 'bg-orange-50 text-orange-600 ring-orange-500/20'"
+            >
+              {{ tableStatusMap.get(order.tableNo)?.status === 'idle' ? '已清台' : '占用中' }}
+            </span>
+          </div>
           <div class="col-span-2 text-xs text-gray-400">{{ new Date(order.created).toLocaleString('zh-CN') }}</div>
         </div>
         <div class="flex flex-wrap items-center gap-2">

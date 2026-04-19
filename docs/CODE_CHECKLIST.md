@@ -406,6 +406,7 @@ export class MyComponent {
 
 | 版本 | 日期 | 更新人 | 更新内容 |
 |------|------|--------|----------|
+| v1.5 | 2026-04-19 | 架构师 | P0 安全漏洞集中修复：Filter 注入、XSS 绕过、金额篡改、竞态条件、折扣 0 值、统计截断 |
 | v1.4 | 2026-04-17 | 架构师 | 新增餐具费定价改造检查项：单价必须从菜品维护读取，前端不展示餐具选择 UI |
 | v1.3 | 2026-04-17 | 架构师 | 新增业务逻辑后端托管检查项，P0 修复：金额计算、状态机、table_status 同步迁后端 |
 | v1.2 | 2026-04-14 | Kimi | 新增餐具功能检查项，支持订单餐具选择和计费 |
@@ -853,6 +854,49 @@ const orderSummary = computed(() => {
 
 ---
 
+#### BUG-008~013: P0 安全与业务漏洞集中修复
+- **发现时间**: 2026-04-19
+- **发现人**: 架构师（代码审计）
+- **影响范围**: API 层、安全工具、后端 Hook、统计视图
+- **严重程度**: 🔴 P0（6 个）
+
+##### 问题清单
+
+| 编号 | 问题 | 影响 |
+|------|------|------|
+| BUG-008 | `escapePbString` 仅转义单引号，Filter 注入风险 | 攻击者可绕过查询条件读取/篡改他人订单 |
+| BUG-009 | `sessionExpired` 模块级锁导致竞态条件 | 并行 401 时 token 清理不一致，状态混乱 |
+| BUG-010 | `setSafeHtml` 正则可被绕过，XSS 风险 | `<div onclick="alert(1)">` 可通过白名单 |
+| BUG-011 | 折扣值 `0` 被逻辑或运算符吞掉 | 前端无法取消折扣，始终回退到旧值 |
+| BUG-012 | `cutlery.totalPrice` 直接信任前端输入 | 攻击者可构造恶意请求篡改订单总额 |
+| BUG-013 | 统计页硬编码 500 条上限 | 年度统计只取前 500 单，经营指标严重失真 |
+
+##### 根因分析
+1. **安全函数自研但未经充分审计**：`escapePbString`、`setSafeHtml` 均为团队自行实现，未引入社区验证的库（如 DOMPurify）
+2. **JavaScript 真假值陷阱**：后端 Hook 中滥用 `||` 回退，未区分 `0` 与 `undefined`
+3. **信任边界不清**：后端 Hook 虽以「不信任前端」为原则，但 `cutlery.totalPrice` 仍直接累加
+4. **前端聚合反模式**：统计功能将大数据量聚合推到浏览器，导致性能瓶颈和数据截断
+
+##### 修复方案
+1. `escapePbString` 增加对 `||` `&&` `#` 等操作符的过滤防御
+2. 移除 `sessionExpired` 模块级锁，401 时统一清理并 `window.location.replace('/login')`
+3. `setSafeHtml` 改为拒绝任何带属性的 HTML 标签，防止 `onclick` / `onerror` / `style` 注入
+4. 后端 Hook 中折扣值判断改为 `!== undefined && !== null`，精确区分 `0`
+5. 后端新增 `getCutleryUnitPrice()` 从 `dishes` 集合读取单价，`recalculateCutlery()` 根据 `quantity × unitPrice` 重算总额
+6. `StatisticsView.vue` 改为循环分页拉取，上限 5000 条，消除静默截断
+
+##### 预防措施
+- 检查清单新增「🟥 安全类 - 输入过滤」：禁止自研安全函数处理用户输入，优先使用 DOMPurify 或框架原生转义
+- 检查清单新增「🟥 精度类 - 逻辑或陷阱」：后端 Hook 中使用 `??` 或显式 `!== undefined` 判断，禁止用 `||` 做数值回退
+- 检查清单新增「🟥 安全类 - 金额计算」：任何金额字段必须由后端根据原始数量/单价重算，不得信任前端传入的合计值
+- 检查清单新增「🟨 性能类 - 大数据聚合」：超过 100 条的数据统计必须走后端聚合，禁止前端全量拉取
+
+##### 相关提交
+- 修复 PR: #p0-security-fix-20260419
+- 检查清单更新: v1.5
+
+---
+
 ## 十、快速更新指南
 
 ### 发现新 Bug 后，按以下步骤更新：
@@ -979,3 +1023,69 @@ input.addEventListener('input', debounce((e) => {
     ▼
   合并提交
 ```
+
+---
+
+## 附录：已实施的架构优化 (2026-04-19)
+
+以下优化已全部完成并通过 171 个单元测试 + 类型检查验证：
+
+### API 层
+- [x] `handleResponse<T>()` 返回 `T | null`，消除 `null as T` 类型欺骗
+- [x] JWT `exp` 字段校验 (`isTokenExpired`)
+- [x] 严格 DTO：`CreateOrderPayload` / `UpdateOrderPayload`
+- [x] 401/403/408 错误标准化处理
+- [x] 非 Abort 网络错误统一包装为 `APIError`
+- [x] Sentry 前端监控集成（生产环境自动上报）
+
+### 业务逻辑
+- [x] `OrderStatusValue` 联合类型替代 `string`
+- [x] `StatusFlow` 移除非法状态流转（如 `serving → cancelled`）
+- [x] `useClearTable` 共享 composable 统一清台规则
+- [x] `discountValue = 0` 精确判断（避免 `\|\|` 吞零）
+
+### 后端 Hook
+- [x] `itemsAppended` 比较 `dishId+quantity` 替代数组长度
+- [x] `serving` 状态纳入结束订单拦截
+- [x] `cutlery.totalPrice` 后端根据 `dishes` 集合重算
+- [x] `table_status` 错误处理硬化（`console.error`）
+
+### 精度与打印
+- [x] `printBill.ts` 浮点运算改用 `MoneyCalculator.toCents`
+- [x] `generateBillHTML` 支持 58mm/80mm 纸张宽度
+
+### 测试覆盖
+- [x] API 层 15 个新测试（`src/api/__tests__/pocketbase.spec.ts`）
+- [x] `security.ts` 测试补充（`setSafeHtml` / `setSafeAttribute` / `MoneyCalculator` 分支）
+- [x] `orderStatus.ts` 流转边界测试
+- [x] `printBill.ts` 58mm 分支测试
+- [x] `settings.store.ts` / `auth.store.ts` 边缘测试
+- [x] `useClearTable` 4 个新测试
+
+### 性能
+- [x] 统计页后端聚合路由 `/api/stats`（SQLite 原生聚合 + json_each）
+- [x] 前端优先后端聚合，404 降级到客户端分页循环
+- [x] `DishAPI.getDishes()` / `SettingsAPI.getSettings()` MemoryCache TTL 缓存
+- [x] `KitchenDisplayView` 轮询改 PocketBase SSE Realtime（降级回轮询）
+
+### P3 体验优化（2026-04-19 追加）
+- [x] PWA 离线化：`manifest.json` + Service Worker + 离线提示
+- [x] 蓝牙打印机：ESC/POS 指令生成器 + Web Bluetooth 封装 + 订单详情页蓝牙打印按钮
+
+### 运维与发布（2026-04-19 追加）
+- [x] 数据库自动备份：每日 3:00 SQLite 热备份 + storage + hooks，保留 30 天
+- [x] CI/CD 自动化部署：GitHub Actions → SCP 上传 → SSH 执行部署脚本
+- [x] 部署用户最小权限：deploy 用户 + sudoers 专用脚本白名单
+- [x] 部署回滚机制：每次部署自动备份 frontend + hooks
+
+### P2 代码质量（2026-04-19 追加）
+- [x] 魔法字符串完整提取到 `src/constants/index.ts`
+- [x] `console.log` 统一改为 `console.error`
+- [x] `parseJSONField()` 提取，消除 6 处重复 JSON 解析
+- [x] `StatusBadgeClass` 提取到 `orderStatus.ts`
+- [x] `DISH_RULES` / `HOT_DISHES` / `CATEGORY_ORDER` / `CATEGORY_META` 提取到 `src/config/dish.config.ts`
+- [x] `filteredDishes` 排序缓存（`sortedDishes` computed 分离）
+- [x] `KitchenDisplayView` `onUnmounted` 显式清理
+- [x] `StatisticsView` 卸载竞态防护
+- [x] `useAutoRefresh` 页面失焦暂停
+- [x] `CustomerOrderView` `setTimeout` 引用清理

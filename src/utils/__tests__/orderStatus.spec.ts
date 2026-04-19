@@ -12,12 +12,14 @@ import {
 describe('OrderStatus', () => {
   it('状态标签应该正确映射', () => {
     expect(StatusLabels[OrderStatus.PENDING]).toBe('待确认')
-    expect(StatusLabels[OrderStatus.COMPLETED]).toBe('已完成')
+    expect(StatusLabels[OrderStatus.COMPLETED]).toBe('上菜完成')
+    expect(StatusLabels[OrderStatus.SETTLED]).toBe('已结账')
   })
 
   it('应该允许合法的状态流转', () => {
     expect(canTransition(OrderStatus.PENDING, OrderStatus.COOKING)).toBe(true)
     expect(canTransition(OrderStatus.PENDING, OrderStatus.COMPLETED)).toBe(false)
+    expect(canTransition(OrderStatus.COMPLETED, OrderStatus.SETTLED)).toBe(true)
     expect(canTransition(OrderStatus.COMPLETED, OrderStatus.PENDING)).toBe(false)
   })
 
@@ -26,7 +28,7 @@ describe('OrderStatus', () => {
       OrderStatus.COOKING,
       OrderStatus.CANCELLED,
     ])
-    expect(getAllowedNextStatuses(OrderStatus.COMPLETED)).toEqual([])
+    expect(getAllowedNextStatuses(OrderStatus.COMPLETED)).toEqual([OrderStatus.SETTLED])
   })
 
   it('应该生成正确的状态按钮', () => {
@@ -58,5 +60,23 @@ describe('OrderStatus', () => {
       mockUpdate,
     )
     expect(result).toBe(true)
+  })
+
+  it('transitionStatus 应该透出更新异常', async () => {
+    const mockUpdate = async () => { throw new Error('DB error') }
+    await expect(
+      transitionStatus('123', OrderStatus.PENDING, OrderStatus.COOKING, mockUpdate),
+    ).rejects.toThrow('DB error')
+  })
+
+  it('SETTLED 和 CANCELLED 的后续状态应为空', () => {
+    expect(getAllowedNextStatuses(OrderStatus.SETTLED)).toEqual([])
+    expect(getAllowedNextStatuses(OrderStatus.CANCELLED)).toEqual([])
+  })
+
+  it('SERVING 只能流转到 COMPLETED', () => {
+    expect(getAllowedNextStatuses(OrderStatus.SERVING)).toEqual([OrderStatus.COMPLETED])
+    expect(canTransition(OrderStatus.SERVING, OrderStatus.COMPLETED)).toBe(true)
+    expect(canTransition(OrderStatus.SERVING, OrderStatus.CANCELLED)).toBe(false)
   })
 })
