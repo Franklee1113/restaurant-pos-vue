@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { DishAPI, PublicOrderAPI, TableStatusAPI, type Dish, type OrderItem, type Order, type TableStatus, type CreateOrderPayload } from '@/api/pocketbase'
+import { type Dish, type OrderItem, type Order, type TableStatus, type CreateOrderPayload } from '@/api/pocketbase'
+import { PublicOrderAPI, PublicTableStatusAPI, PublicDishAPI, CustomerSession } from '@/api/public-order.api'
 import { OrderStatus, generateOrderNo } from '@/utils/orderStatus'
 import { MoneyCalculator } from '@/utils/security'
 import { useToast } from '@/composables/useToast'
@@ -131,8 +132,8 @@ async function loadData() {
   loading.value = true
   try {
     const [dishRes, ts] = await Promise.all([
-      DishAPI.getDishes(),
-      TableStatusAPI.getTableStatus(tableNo.value).catch(() => null),
+      PublicDishAPI.getDishes(),
+      PublicTableStatusAPI.getTableStatus(tableNo.value).catch(() => null),
     ])
     dishes.value = dishRes.items
     tablewareDish.value = dishRes.items.find((d) => d.category === '餐具') || null
@@ -153,13 +154,29 @@ async function loadData() {
     }
 
     tableStatus.value = ts
-    if (ts?.currentOrderId) {
-      const order = await PublicOrderAPI.getOrder(ts.currentOrderId).catch(() => null)
-      if (order && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.SETTLED) {
-        currentOrder.value = order
-        guests.value = typeof order.guests === 'number' ? order.guests : 1
-      } else if (order && (order.status === OrderStatus.COMPLETED || order.status === OrderStatus.CANCELLED || order.status === OrderStatus.SETTLED)) {
-        toast.info('该桌上一单已结束，请开始新点餐')
+    // 尝试恢复顾客会话
+    const session = CustomerSession.restore()
+    if (session) {
+      try {
+        const order = await PublicOrderAPI.getOrder(session.orderIdValue, session)
+        if (order && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.SETTLED) {
+          currentOrder.value = order
+          guests.value = typeof order.guests === 'number' ? order.guests : 1
+        }
+      } catch {
+        // 会话过期或订单已结束，清除会话
+        session.clear()
+      }
+    }
+
+    // 如果通过会话未恢复，检查桌台是否有未完成订单（仅提示）
+    if (!currentOrder.value && ts?.currentOrderId) {
+      const orders = await PublicOrderAPI.getOrdersByTable(tableNo.value).catch(() => [])
+      if (orders.length > 0) {
+        const firstOrder = orders[0]
+        if (firstOrder && (firstOrder.status === OrderStatus.COMPLETED || firstOrder.status === OrderStatus.CANCELLED || firstOrder.status === OrderStatus.SETTLED)) {
+          toast.info('该桌上一单已结束，请开始新点餐')
+        }
       }
     }
 
@@ -192,7 +209,12 @@ async function submitOrder() {
     }))
 
     if (currentOrder.value) {
-      await PublicOrderAPI.appendOrderItems(currentOrder.value.id, items)
+      const session = CustomerSession.restore()
+      if (!session) {
+        toast.error('会话已过期，请刷新页面')
+        return
+      }
+      await PublicOrderAPI.appendOrderItems(currentOrder.value.id, session, items)
       toast.success('已追加到当前订单')
     successOrderNo.value = currentOrder.value.orderNo
     showSuccess.value = true
@@ -232,9 +254,13 @@ async function submitOrder() {
         source: 'customer',
         cutlery,
       }
-      const order = await PublicOrderAPI.createOrder(orderData)
-      currentOrder.value = order
-      successOrderNo.value = order.orderNo
+      const result = await PublicOrderAPI.createOrder(orderData)
+      currentOrder.value = result
+      successOrderNo.value = result.orderNo
+
+      // 保存顾客会话（accessToken）
+      const session = new CustomerSession(result.id, result.accessToken)
+      session.persist()
 
       // table_status 同步已由后端钩子自动处理
       toast.success('订单提交成功！')

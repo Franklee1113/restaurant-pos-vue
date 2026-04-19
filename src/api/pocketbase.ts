@@ -39,7 +39,7 @@ export class APIError extends Error {
   }
 }
 
-async function fetchWithTimeout(
+export async function fetchWithTimeout(
   url: string,
   options: RequestInit = {},
   timeout = REQUEST_TIMEOUT,
@@ -67,7 +67,7 @@ async function fetchWithTimeout(
 }
 
 // P1-1: handleResponse 返回 T | null，不再用 null as T 欺骗类型系统
-async function handleResponse<T>(response: Response): Promise<T | null> {
+export async function handleResponse<T>(response: Response): Promise<T | null> {
   if (!response.ok) {
     let errorMessage = '请求失败'
     let errorData = null
@@ -414,14 +414,14 @@ export const OrderAPI = {
 }
 
 export const DishAPI = {
-  // P1-10: 查询类接口允许匿名访问（顾客端扫码点单需要看菜单）
+  // 权限收紧后，dishes 查询需携带认证 token
   async getDishes(): Promise<ListResult<Dish>> {
     const cacheKey = 'dishes:all'
     const cached = apiCache.get<ListResult<Dish>>(cacheKey)
     if (cached) return cached
 
     const url = `${PB_URL}/collections/${COLLECTION_DISHES}/records?perPage=100&sort=name`
-    const res = await publicRequest<ListResult<Dish>>(url)
+    const res = await privateRequest<ListResult<Dish>>(url)
     if (!res) throw new APIError('获取菜品列表失败', 500)
     apiCache.set(cacheKey, res, 60_000)
     return res
@@ -431,7 +431,7 @@ export const DishAPI = {
     const safeCategory = escapePbString(category)
     const filter = `category='${safeCategory}'`
     const url = `${PB_URL}/collections/${COLLECTION_DISHES}/records?filter=${encodeURIComponent(filter)}`
-    const res = await publicRequest<ListResult<Dish>>(url)
+    const res = await privateRequest<ListResult<Dish>>(url)
     if (!res) throw new APIError('获取菜品分类失败', 500)
     return res
   },

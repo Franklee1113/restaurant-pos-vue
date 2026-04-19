@@ -1,6 +1,6 @@
 # =============================================================================
 # 智能点菜系统 - 本地/生产一体化编排
-# 服务：frontend (Nginx) + pocketbase (数据库与 API)
+# 服务：frontend (Nginx) + pocketbase (数据库) + public-api (顾客端API)
 # 用法：docker compose up -d
 # =============================================================================
 
@@ -13,8 +13,37 @@ services:
       - "8090:8090"
     volumes:
       - pb_data:/pb/pb_data
+      - ./pb_migrations:/pb/pb_migrations
+      - ./pb_hooks:/pb/pb_hooks
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8090/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  public-api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: restaurant-pos-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PB_URL=http://pocketbase:8090
+      - PB_ADMIN_EMAIL=${PB_ADMIN_EMAIL:-admin@restaurant.com}
+      - PB_ADMIN_PASSWORD=${PB_ADMIN_PASSWORD:-REDACTED_DEFAULT_PASSWORD}
+      - PORT=3000
+      - HOST=0.0.0.0
+      - RATE_LIMIT_MAX=100
+      - CORS_ORIGIN=*
+    depends_on:
+      pocketbase:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -32,6 +61,8 @@ services:
       - VITE_PB_URL=/api
     depends_on:
       pocketbase:
+        condition: service_healthy
+      public-api:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]

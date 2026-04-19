@@ -219,7 +219,20 @@ function viewOrder(order: Order) {
   router.push({ name: 'orderDetail', params: { orderId: order.id } })
 }
 
-function editOrder(order: Order) {
+async function editOrder(order: Order) {
+  const endedStatuses: OrderStatusValue[] = [OrderStatus.COMPLETED, OrderStatus.SETTLED, OrderStatus.CANCELLED]
+  const ts = tableStatusMap.value.get(order.tableNo)
+
+  if (endedStatuses.includes(order.status) && ts?.status === 'idle') {
+    const ok = await globalConfirm.confirm({
+      title: '订单已清台',
+      description: '此订单已清台，不应该再次编辑！',
+      confirmText: '继续编辑',
+      cancelText: '取消',
+    })
+    if (!ok) return
+  }
+
   router.push({ name: 'editOrder', params: { orderId: order.id } })
 }
 

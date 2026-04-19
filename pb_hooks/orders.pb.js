@@ -1,62 +1,9 @@
 /**
  * 智能点菜系统 - 订单核心业务后端钩子
- * 作用：将金额计算、状态机推断、table_status 同步等关键业务逻辑从前端收归后端
  * 适用：PocketBase v0.22+
- * 注意：PocketBase JS VM 中 record.get('items') / record.get('cutlery') 返回 []byte，
- *       即使是 null 值也可能返回 length=0 的对象，因此解析前必须判断 raw && raw.length > 0
+ * 注意：PocketBase JS VM (goja) 中各 hook 回调作用域隔离，
+ *       所有辅助逻辑必须在每个 hook 内部内联定义，不可依赖外部函数。
  */
-
-function parseJSONField(record, fieldName, defaultValue = []) {
-  try {
-    const raw = record.get(fieldName)
-    if (raw && raw.length > 0) {
-      let s = ''
-      for (let i = 0; i < raw.length; i++) {
-        s += String.fromCharCode(raw[i])
-      }
-      if (s.length > 0) {
-        return JSON.parse(s)
-      }
-    }
-  } catch (e) {
-    console.error('parseJSONField error (' + fieldName + '):', e)
-  }
-  return defaultValue
-}
-
-/**
- * 从 dishes 集合获取餐具单价（category === '餐具'）
- */
-function getCutleryUnitPrice() {
-  try {
-    const records = $app.dao().findRecordsByFilter('dishes', "category='餐具'", '', 1, 0)
-    if (records && records.length > 0) {
-      return records[0].get('price') || 0
-    }
-  } catch (e) {
-    console.error('getCutleryUnitPrice error:', e)
-  }
-  return 0
-}
-
-/**
- * 根据餐具数量和 dishes 集合单价，重新计算 cutlery 金额
- * 不信任前端传入的 cutlery.totalPrice
- */
-function recalculateCutlery(record, cutlery) {
-  if (!cutlery || cutlery.quantity <= 0 || cutlery.type === 'free') {
-    return { cutleryTotalPrice: 0, updatedCutlery: cutlery }
-  }
-  const unitPrice = getCutleryUnitPrice()
-  const totalPrice = Math.round(cutlery.quantity * unitPrice * 100) / 100
-  const updatedCutlery = {
-    ...cutlery,
-    unitPrice: unitPrice,
-    totalPrice: totalPrice,
-  }
-  record.set('cutlery', JSON.stringify(updatedCutlery))
-  return { cutleryTotalPrice: totalPrice, updatedCutlery }
-}
 
 // ─────────────────────────────────────────────────────────────
 // 创建订单前：强制重算金额（不信任前端金额）
@@ -65,6 +12,55 @@ onRecordBeforeCreateRequest(
   (e) => {
     try {
       const record = e.record
+
+      // 内联：解析 JSON 字段（PB VM 中返回 []byte）
+      function parseJSONField(record, fieldName, defaultValue) {
+        try {
+          const raw = record.get(fieldName)
+          if (raw && raw.length > 0) {
+            let s = ''
+            for (let i = 0; i < raw.length; i++) {
+              s += String.fromCharCode(raw[i])
+            }
+            if (s.length > 0) {
+              return JSON.parse(s)
+            }
+          }
+        } catch (e) {
+          console.error('parseJSONField error (' + fieldName + '):', e)
+        }
+        return defaultValue === undefined ? [] : defaultValue
+      }
+
+      // 内联：获取餐具单价
+      function getCutleryUnitPrice() {
+        try {
+          const records = $app.dao().findRecordsByFilter('dishes', "category='餐具'", '', 1, 0)
+          if (records && records.length > 0) {
+            return records[0].get('price') || 0
+          }
+        } catch (e) {
+          console.error('getCutleryUnitPrice error:', e)
+        }
+        return 0
+      }
+
+      // 内联：重算餐具费
+      function recalculateCutlery(record, cutlery) {
+        if (!cutlery || cutlery.quantity <= 0 || cutlery.type === 'free') {
+          return { cutleryTotalPrice: 0, updatedCutlery: cutlery }
+        }
+        const unitPrice = getCutleryUnitPrice()
+        const totalPrice = Math.round(cutlery.quantity * unitPrice * 100) / 100
+        const updatedCutlery = {
+          quantity: cutlery.quantity,
+          type: cutlery.type,
+          unitPrice: unitPrice,
+          totalPrice: totalPrice,
+        }
+        record.set('cutlery', JSON.stringify(updatedCutlery))
+        return { cutleryTotalPrice: totalPrice, updatedCutlery: updatedCutlery }
+      }
 
       // 解析 items
       let items = parseJSONField(record, 'items', [])
@@ -77,7 +73,7 @@ onRecordBeforeCreateRequest(
       const rawDiscountValue = record.get('discountValue')
       const discountValue = rawDiscountValue !== undefined && rawDiscountValue !== null ? rawDiscountValue : 0
 
-      // P1-21: 直接计算 price * 100 * quantity，避免先 round×10 导致的精度偏差
+      // 直接计算 price * 100 * quantity
       let totalCents = 0
       for (let i = 0; i < items.length; i++) {
         totalCents += Math.round((items[i].price || 0) * 100 * (items[i].quantity || 0))
@@ -117,7 +113,56 @@ onRecordBeforeUpdateRequest(
     try {
       const record = e.record
 
-      // 查询旧记录（PocketBase JS VM 中 record.original() 不可用）
+      // 内联：解析 JSON 字段
+      function parseJSONField(record, fieldName, defaultValue) {
+        try {
+          const raw = record.get(fieldName)
+          if (raw && raw.length > 0) {
+            let s = ''
+            for (let i = 0; i < raw.length; i++) {
+              s += String.fromCharCode(raw[i])
+            }
+            if (s.length > 0) {
+              return JSON.parse(s)
+            }
+          }
+        } catch (e) {
+          console.error('parseJSONField error (' + fieldName + '):', e)
+        }
+        return defaultValue === undefined ? [] : defaultValue
+      }
+
+      // 内联：获取餐具单价
+      function getCutleryUnitPrice() {
+        try {
+          const records = $app.dao().findRecordsByFilter('dishes', "category='餐具'", '', 1, 0)
+          if (records && records.length > 0) {
+            return records[0].get('price') || 0
+          }
+        } catch (e) {
+          console.error('getCutleryUnitPrice error:', e)
+        }
+        return 0
+      }
+
+      // 内联：重算餐具费
+      function recalculateCutlery(record, cutlery) {
+        if (!cutlery || cutlery.quantity <= 0 || cutlery.type === 'free') {
+          return { cutleryTotalPrice: 0, updatedCutlery: cutlery }
+        }
+        const unitPrice = getCutleryUnitPrice()
+        const totalPrice = Math.round(cutlery.quantity * unitPrice * 100) / 100
+        const updatedCutlery = {
+          quantity: cutlery.quantity,
+          type: cutlery.type,
+          unitPrice: unitPrice,
+          totalPrice: totalPrice,
+        }
+        record.set('cutlery', JSON.stringify(updatedCutlery))
+        return { cutleryTotalPrice: totalPrice, updatedCutlery: updatedCutlery }
+      }
+
+      // 查询旧记录
       const original = $app.dao().findRecordById('orders', record.id)
 
       // 解析新 items
@@ -130,7 +175,7 @@ onRecordBeforeUpdateRequest(
 
       const oldStatus = original.get('status')
 
-      // P1-26: 检测是否有新菜品追加（逐条比较 id+quantity，而非仅比较长度）
+      // 检测是否有新菜品追加
       let itemsAppended = false
       if (newItems.length > oldItems.length) {
         itemsAppended = true
@@ -154,8 +199,6 @@ onRecordBeforeUpdateRequest(
         }
         if (diffCount > 0) {
           itemStatusChanged = true
-          // 追加菜品导致的状态回退允许修改
-          // P1-27: 补充 serving 拦截，已结束/上菜中订单不允许修改菜品状态
           if (!itemsAppended && (oldStatus === 'completed' || oldStatus === 'cancelled' || oldStatus === 'settled' || oldStatus === 'serving')) {
             throw new Error('订单已结束，不能修改菜品状态')
           }
@@ -197,15 +240,13 @@ onRecordBeforeUpdateRequest(
             }
           }
         } catch (err) {
-          // P1-25: 重新开台失败让异常上浮，不再静默吞掉
           console.error('table_status re-open error:', err)
           throw new Error('重新开台失败: ' + err.message)
         }
       }
 
-      // P1-22: 始终执行金额重算，即使 items 为空（删除全部菜品后金额应归零）
-      if (true) {
-        // 解析 cutlery（优先新记录，再原记录）
+      // 始终执行金额重算
+      {
         let cutlery = parseJSONField(record, 'cutlery', null)
         if (!cutlery) {
           cutlery = parseJSONField(original, 'cutlery', null)
@@ -216,7 +257,6 @@ onRecordBeforeUpdateRequest(
         const rawOriginalDiscountValue = original.get('discountValue')
         const discountValue = rawDiscountValue !== undefined && rawDiscountValue !== null ? rawDiscountValue : (rawOriginalDiscountValue !== undefined && rawOriginalDiscountValue !== null ? rawOriginalDiscountValue : 0)
 
-        // P1-21: 直接计算 price * 100 * quantity
         let totalCents = 0
         for (let i = 0; i < newItems.length; i++) {
           totalCents += Math.round((newItems[i].price || 0) * 100 * (newItems[i].quantity || 0))
@@ -303,7 +343,6 @@ onRecordAfterCreateRequest(
 
       if (records && records.length > 0) {
         const ts = records[0]
-        // P1-23: 检查桌台是否已被占用（已有未完成订单绑定）
         const existingOrderId = ts.get('currentOrderId')
         if (ts.get('status') === 'dining' && existingOrderId && existingOrderId !== record.id) {
           throw new Error('该桌台已被占用，无法创建新订单')
@@ -351,7 +390,6 @@ onRecordAfterUpdateRequest(
 
       if (records && records.length > 0) {
         const ts = records[0]
-        // 仅当该桌当前绑定的订单就是此订单时才清台，防止覆盖新订单
         if (ts.get('currentOrderId') === record.id) {
           ts.set('status', 'idle')
           ts.set('currentOrderId', '')

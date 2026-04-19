@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { OrderAPI, PublicOrderAPI, TableStatusAPI, type Order, type OrderStatusValue } from '@/api/pocketbase'
+import { OrderAPI, TableStatusAPI, type Order, type OrderStatusValue } from '@/api/pocketbase'
 import { useSettingsStore } from '@/stores/settings.store'
 import { OrderStatus, StatusLabels, StatusFlow, StatusBadgeClass as statusBadgeClass } from '@/utils/orderStatus'
 import { MoneyCalculator } from '@/utils/security'
-import { getFileUrl } from '@/utils/assets'
 import { useToast } from '@/composables/useToast'
 import { globalConfirm } from '@/composables/useConfirm'
 import { useClearTable } from '@/composables/useClearTable'
@@ -23,7 +22,6 @@ const orderId = computed(() => route.params.orderId as string)
 const order = ref<Order | null>(null)
 const loading = ref(false)
 const error = ref('')
-const showQrModal = ref(false)
 const processing = ref(false)
 const { checkCanClearTable, executeClearTable } = useClearTable()
 
@@ -111,6 +109,30 @@ async function updateStatus(newStatus: OrderStatusValue) {
   }
 }
 
+async function handleEdit() {
+  if (!order.value) return
+  const endedStatuses: OrderStatusValue[] = [OrderStatus.COMPLETED, OrderStatus.SETTLED, OrderStatus.CANCELLED]
+
+  if (endedStatuses.includes(order.value.status)) {
+    try {
+      const ts = await TableStatusAPI.getTableStatus(order.value.tableNo)
+      if (ts?.status === 'idle') {
+        const ok = await globalConfirm.confirm({
+          title: '订单已清台',
+          description: '此订单已清台，不应该再次编辑！',
+          confirmText: '继续编辑',
+          cancelText: '取消',
+        })
+        if (!ok) return
+      }
+    } catch {
+      // 查询失败时默认允许编辑
+    }
+  }
+
+  router.push({ name: 'editOrder', params: { orderId: order.value.id } })
+}
+
 async function deleteOrder() {
   if (!order.value || processing.value) return
   const ok = await globalConfirm.confirm({
@@ -127,25 +149,6 @@ async function deleteOrder() {
     router.replace({ name: 'orderList' })
   } catch (err: unknown) {
     toast.error('删除失败: ' + (err instanceof Error ? err.message : '未知错误'))
-  } finally {
-    processing.value = false
-  }
-}
-
-function getQrUrl(field: 'wechatPayQr' | 'alipayQr'): string | null {
-  return getFileUrl('settings', settingsStore.settings?.id, settingsStore.settings?.[field])
-}
-
-async function confirmPaid() {
-  if (!order.value || processing.value) return
-  processing.value = true
-  try {
-    await OrderAPI.updateOrderStatus(order.value.id, OrderStatus.COMPLETED)
-    toast.success('已确认收款，订单完成！')
-    showQrModal.value = false
-    await loadOrder()
-  } catch (err: unknown) {
-    toast.error('操作失败: ' + (err instanceof Error ? err.message : '未知错误'))
   } finally {
     processing.value = false
   }
@@ -257,14 +260,6 @@ async function clearTable() {
         </div>
         <div class="flex items-center gap-2 flex-wrap">
           <button
-            v-if="order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.SETTLED"
-            :disabled="processing"
-            class="px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 shadow-sm active:scale-[0.98] transition-transform disabled:opacity-50"
-            @click="showQrModal = true"
-          >
-            扫码收款
-          </button>
-          <button
             class="px-3 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 active:scale-[0.98] transition-transform"
             @click="handlePrintBill"
           >
@@ -292,7 +287,7 @@ async function clearTable() {
           </button>
           <button
             class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm active:scale-[0.98] transition-transform"
-            @click="router.push({ name: 'editOrder', params: { orderId: order.id } })"
+            @click="handleEdit"
           >
             编辑订单
           </button>
@@ -494,48 +489,5 @@ async function clearTable() {
       </div>
     </div>
 
-    <!-- QR Checkout Modal -->
-    <div
-      v-if="showQrModal"
-      class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4"
-      @click.self="showQrModal = false"
-    >
-      <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
-        <div class="text-center mb-5">
-          <div class="text-2xl font-bold text-gray-900 mb-1">
-            应付 {{ MoneyCalculator.format(order?.finalAmount || order?.totalAmount || 0) }}
-          </div>
-          <div class="text-sm text-gray-500">请顾客扫码支付</div>
-        </div>
-        <div class="flex justify-center gap-6 mb-5">
-          <div v-if="getQrUrl('wechatPayQr')" class="text-center">
-            <img :src="getQrUrl('wechatPayQr')!" alt="微信收款码" class="w-32 h-32 object-contain border rounded-lg mx-auto" />
-            <div class="text-xs text-gray-600 mt-2">微信支付</div>
-          </div>
-          <div v-if="getQrUrl('alipayQr')" class="text-center">
-            <img :src="getQrUrl('alipayQr')!" alt="支付宝收款码" class="w-32 h-32 object-contain border rounded-lg mx-auto" />
-            <div class="text-xs text-gray-600 mt-2">支付宝</div>
-          </div>
-        </div>
-        <div v-if="!getQrUrl('wechatPayQr') && !getQrUrl('alipayQr')" class="text-center text-sm text-gray-500 mb-5">
-          尚未在设置中上传收款码，请前往「系统设置 → 收款码设置」上传。
-        </div>
-        <div class="space-y-2">
-          <button
-            :disabled="processing"
-            class="w-full py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 active:scale-[0.98] transition-transform disabled:opacity-50"
-            @click="confirmPaid"
-          >
-            已听到到账语音，确认收款
-          </button>
-          <button
-            class="w-full py-3 bg-white text-gray-700 border border-gray-300 font-medium rounded-lg hover:bg-gray-50 active:scale-[0.98] transition-transform"
-            @click="showQrModal = false"
-          >
-            取消
-          </button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
