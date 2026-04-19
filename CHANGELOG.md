@@ -5,6 +5,31 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.3] - 2026-04-19
+
+### 重构（状态机 v2.0）
+- **新增 `dining`（用餐中）状态**：上菜完成 + 未结账 + 桌台占用，填补「上菜完成」与「已结账」之间的状态空白
+- **状态语义重定义**：
+  - `completed` 标签从「上菜完成」改为「已结账」（语义：已付 + 占用）
+  - `settled` 标签从「已结账」改为「已清台」（语义：已付 + 空闲）
+  - `dining` 标签为「用餐中」（语义：未付 + 占用）
+- **状态流转更新**：`serving → dining → completed → settled`，后端 Hook 自动推断 `allServed → dining`
+
+### 修复（P0 清台逻辑）
+- **修复自动清台条件**：后端 Hook 从 `completed/cancelled` 清台改为 `settled/cancelled` 清台，completed/dining 不再自动清台
+- **修复清台死锁**：`getOrdersByTable` 未完成订单过滤从排除 `completed/cancelled` 改为排除 `settled/cancelled`，消除「settled 后无法手动清台」的死锁
+- **修复订单列表历史订单显示**：settled/cancelled 历史订单显示「已结束」而非当前桌台实时状态，消除「已结账订单跟随新客人显示占用中」的误导
+- **修复清台同步订单状态**：手动清台时自动将 `completed` 订单同步更新为 `settled`，保持订单状态与桌台状态一致
+- **修复金额归零 Bug**：后端 Hook 部分更新（只改 status）时 `newItems` 为空导致金额重算为 0，现使用 `oldItems` 兜底
+- **删除扫码收款按钮**：后付模式下，订单详情页移除「扫码收款」按钮及二维码模态框，收款统一通过「标记为已结账」完成
+
+### 改进（部署流程）
+- **部署脚本增加 pb_hooks 自动同步**：`scripts/deploy.sh` Step 4 新增自动复制 `pb_hooks/` 到 `/opt/pocketbase/pb_hooks/` 并重启 PocketBase，解决「源码 Hook 已改但运行环境未更新」的部署漏洞
+- **部署脚本增加 pb_migrations 自动同步**：迁移文件同步到 PocketBase 目录，确保数据库 Schema 变更自动生效
+
+### 文档
+- 更新 `docs/智能点菜系统-详细设计说明书.md` 至 v2.3，重写状态机流转图、清台规则、状态生命周期表格
+
 ## [1.0.2] - 2026-04-17
 
 ### 改进
