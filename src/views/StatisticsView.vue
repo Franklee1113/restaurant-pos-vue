@@ -235,9 +235,13 @@ const stats = computed(() => {
 
     if (s.statusStats[order.status]) s.statusStats[order.status]!.count++
 
-    if (order.status === OrderStatus.SETTLED) {
+    if (order.status === OrderStatus.SETTLED || order.status === OrderStatus.COMPLETED) {
       s.totalRevenue += amount
-      s.settledOrders++
+      if (order.status === OrderStatus.SETTLED) {
+        s.settledOrders++
+      } else {
+        s.completedOrders++
+      }
       const daily = s.dailyStats[dateKey]
       if (daily) {
         daily.revenue += amount
@@ -259,8 +263,6 @@ const stats = computed(() => {
           s.dishStats[name].revenue += MoneyCalculator.calculate([{ price: item.price || 0, quantity: item.quantity || 0 }], 0).total
         })
       }
-    } else if (order.status === OrderStatus.COMPLETED) {
-      s.completedOrders++
     } else if (order.status === OrderStatus.CANCELLED) {
       s.cancelledOrders++
     }

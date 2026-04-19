@@ -53,6 +53,7 @@ const statusOptions = [
   { value: OrderStatus.PENDING, label: StatusLabels[OrderStatus.PENDING] },
   { value: OrderStatus.COOKING, label: StatusLabels[OrderStatus.COOKING] },
   { value: OrderStatus.SERVING, label: StatusLabels[OrderStatus.SERVING] },
+  { value: OrderStatus.DINING, label: StatusLabels[OrderStatus.DINING] },
   { value: OrderStatus.COMPLETED, label: StatusLabels[OrderStatus.COMPLETED] },
   { value: OrderStatus.SETTLED, label: StatusLabels[OrderStatus.SETTLED] },
   { value: OrderStatus.CANCELLED, label: StatusLabels[OrderStatus.CANCELLED] },
@@ -292,10 +293,10 @@ async function clearTable(tableNo: string) {
           confirmText: '知道了',
           type: 'default',
         })
-      } else if (reason === 'completed') {
+      } else if (reason === 'dining') {
         await globalConfirm.confirm({
           title: '不可清台',
-          description: `${tableNo} 号桌订单已上菜完成但尚未结账，无法清台。请先将订单标记为「已结账」后再清台。`,
+          description: `${tableNo} 号桌客人还在用餐中，尚未结账，无法清台。请先结账后再清台。`,
           confirmText: '知道了',
           type: 'default',
         })
@@ -572,6 +573,19 @@ function exportExcel() {
             </td>
             <td class="px-3 py-3">
               <span
+                v-if="order.status === OrderStatus.SETTLED || order.status === OrderStatus.CANCELLED"
+                class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset bg-gray-50 text-gray-500 ring-gray-500/20"
+              >
+                已结束
+              </span>
+              <span
+                v-else-if="order.status === OrderStatus.COMPLETED"
+                class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset bg-green-50 text-green-700 ring-green-600/20"
+              >
+                待清台
+              </span>
+              <span
+                v-else
                 class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset"
                 :class="tableStatusMap.get(order.tableNo)?.status === 'idle' ? 'bg-gray-50 text-gray-600 ring-gray-500/20' : 'bg-orange-50 text-orange-600 ring-orange-500/20'"
               >
@@ -657,6 +671,19 @@ function exportExcel() {
           <div>
             桌台状态:
             <span
+              v-if="order.status === OrderStatus.SETTLED || order.status === OrderStatus.CANCELLED"
+              class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset bg-gray-50 text-gray-500 ring-gray-500/20"
+            >
+              已结束
+            </span>
+            <span
+              v-else-if="order.status === OrderStatus.COMPLETED"
+              class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset bg-green-50 text-green-700 ring-green-600/20"
+            >
+              待清台
+            </span>
+            <span
+              v-else
               class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset"
               :class="tableStatusMap.get(order.tableNo)?.status === 'idle' ? 'bg-gray-50 text-gray-600 ring-gray-500/20' : 'bg-orange-50 text-orange-600 ring-orange-500/20'"
             >

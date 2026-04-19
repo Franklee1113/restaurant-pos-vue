@@ -111,7 +111,7 @@ async function updateStatus(newStatus: OrderStatusValue) {
 
 async function handleEdit() {
   if (!order.value) return
-  const endedStatuses: OrderStatusValue[] = [OrderStatus.COMPLETED, OrderStatus.SETTLED, OrderStatus.CANCELLED]
+  const endedStatuses: OrderStatusValue[] = [OrderStatus.SETTLED, OrderStatus.CANCELLED]
 
   if (endedStatuses.includes(order.value.status)) {
     try {
@@ -177,10 +177,10 @@ async function clearTable() {
           confirmText: '知道了',
           type: 'default',
         })
-      } else if (reason === 'completed') {
+      } else if (reason === 'dining') {
         await globalConfirm.confirm({
           title: '不可清台',
-          description: '该订单已上菜完成但尚未结账，无法清台。请先将订单标记为「已结账」后再清台。',
+          description: '该订单客人还在用餐中，尚未结账，无法清台。请先结账后再清台。',
           confirmText: '知道了',
           type: 'default',
         })

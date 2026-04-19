@@ -197,7 +197,7 @@ export interface OrderItem {
 }
 
 // P1-2: Order.status 改为联合类型
-export type OrderStatusValue = 'pending' | 'cooking' | 'serving' | 'completed' | 'settled' | 'cancelled'
+export type OrderStatusValue = 'pending' | 'cooking' | 'serving' | 'dining' | 'completed' | 'settled' | 'cancelled'
 
 export interface Order {
   id: string
@@ -495,7 +495,7 @@ export const PublicOrderAPI = {
       throw new APIError('无效的桌号格式', 400)
     }
     const safeTableNo = escapePbString(tableNo)
-    const filter = `tableNo='${safeTableNo}' && status!='completed' && status!='cancelled'`
+    const filter = `tableNo='${safeTableNo}' && status!='settled' && status!='cancelled'`
     const url = `${PB_URL}/collections/${COLLECTION_ORDERS}/records?filter=${encodeURIComponent(filter)}&sort=-created&perPage=1`
     const res = await publicRequest<ListResult<Order>>(url)
     return res?.items || []

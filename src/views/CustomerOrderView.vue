@@ -159,7 +159,7 @@ async function loadData() {
     if (session) {
       try {
         const order = await PublicOrderAPI.getOrder(session.orderIdValue, session)
-        if (order && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.SETTLED) {
+        if (order && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.SETTLED && order.status !== OrderStatus.DINING) {
           currentOrder.value = order
           guests.value = typeof order.guests === 'number' ? order.guests : 1
         }
@@ -174,7 +174,7 @@ async function loadData() {
       const orders = await PublicOrderAPI.getOrdersByTable(tableNo.value).catch(() => [])
       if (orders.length > 0) {
         const firstOrder = orders[0]
-        if (firstOrder && (firstOrder.status === OrderStatus.COMPLETED || firstOrder.status === OrderStatus.CANCELLED || firstOrder.status === OrderStatus.SETTLED)) {
+        if (firstOrder && (firstOrder.status === OrderStatus.COMPLETED || firstOrder.status === OrderStatus.CANCELLED || firstOrder.status === OrderStatus.SETTLED || firstOrder.status === OrderStatus.DINING)) {
           toast.info('该桌上一单已结束，请开始新点餐')
         }
       }

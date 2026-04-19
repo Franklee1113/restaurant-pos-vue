@@ -199,7 +199,7 @@ onRecordBeforeUpdateRequest(
         }
         if (diffCount > 0) {
           itemStatusChanged = true
-          if (!itemsAppended && (oldStatus === 'completed' || oldStatus === 'cancelled' || oldStatus === 'settled' || oldStatus === 'serving')) {
+          if (!itemsAppended && (oldStatus === 'completed' || oldStatus === 'settled' || oldStatus === 'cancelled')) {
             throw new Error('订单已结束，不能修改菜品状态')
           }
         }
@@ -211,7 +211,7 @@ onRecordBeforeUpdateRequest(
       }
 
       // 如果有新菜品追加到已结束订单，重置为 pending 并重新开台
-      if (itemsAppended && (oldStatus === 'completed' || oldStatus === 'serving')) {
+      if (itemsAppended && (oldStatus === 'dining' || oldStatus === 'serving')) {
         record.set('status', 'pending')
         try {
           const tableNo = record.get('tableNo')
@@ -295,7 +295,7 @@ onRecordBeforeUpdateRequest(
         }
 
         let inferred = 'pending'
-        if (allServed) inferred = 'completed'
+        if (allServed) inferred = 'dining'
         else if (allDone) inferred = 'serving'
         else if (anyCooking) inferred = 'cooking'
 
@@ -303,8 +303,10 @@ onRecordBeforeUpdateRequest(
           const flow = {
             pending: ['cooking', 'cancelled'],
             cooking: ['serving', 'cancelled'],
-            serving: ['completed'],
-            completed: ['pending'],
+            serving: ['dining', 'cancelled'],
+            dining: ['completed', 'cancelled'],
+            completed: ['settled'],
+            settled: [],
             cancelled: [],
           }
           if ((flow[oldStatus] || []).indexOf(inferred) === -1) {
@@ -376,7 +378,7 @@ onRecordAfterUpdateRequest(
     const status = record.get('status')
     const tableNo = record.get('tableNo')
 
-    if (!tableNo || (status !== 'completed' && status !== 'cancelled')) return
+    if (!tableNo || (status !== 'settled' && status !== 'cancelled')) return
 
     try {
       const records = $app.dao().findRecordsByFilter(

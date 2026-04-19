@@ -21,7 +21,7 @@ export function useClearTable() {
    * 清台前置检查（与后端 Hook 清台规则保持一致）
    * 1. 桌台是否已 idle → 阻断
    * 2. 该桌是否有未完成订单 → 阻断
-   * 3. 当前绑定订单是否为 COMPLETED（上菜完成未结账）→ 阻断
+   * 3. 当前绑定订单是否为 DINING（上菜完成未结账）→ 阻断
    */
   async function checkCanClearTable(tableNo: string): Promise<ClearTableCheckResult> {
     const ts = await TableStatusAPI.getTableStatus(tableNo)
@@ -42,14 +42,14 @@ export function useClearTable() {
       }
     }
 
-    // ③ 当前绑定订单为 COMPLETED（上菜完成但未结账）
+    // ③ 当前绑定订单为 DINING（上菜完成但未结账）
     if (ts?.currentOrderId) {
       try {
         const currentOrder = await OrderAPI.getOrder(ts.currentOrderId)
-        if (currentOrder.status === OrderStatus.COMPLETED) {
+        if (currentOrder.status === OrderStatus.DINING) {
           return {
             canClear: false,
-            reason: 'completed',
+            reason: 'dining',
             tableStatus: ts,
           }
         }
@@ -62,12 +62,24 @@ export function useClearTable() {
   }
 
   async function executeClearTable(tableStatus: TableStatus | undefined): Promise<void> {
-    if (tableStatus?.id) {
-      await TableStatusAPI.updateTableStatus(tableStatus.id, {
-        status: 'idle',
-        currentOrderId: '',
-      })
+    if (!tableStatus?.id) return
+
+    // 如果当前绑定订单是 completed（已结账但未清台），先同步更新为 settled
+    if (tableStatus.currentOrderId) {
+      try {
+        const order = await OrderAPI.getOrder(tableStatus.currentOrderId)
+        if (order.status === OrderStatus.COMPLETED) {
+          await OrderAPI.updateOrderStatus(order.id, OrderStatus.SETTLED)
+        }
+      } catch {
+        // 订单查询/更新失败时继续清台（不阻塞）
+      }
     }
+
+    await TableStatusAPI.updateTableStatus(tableStatus.id, {
+      status: 'idle',
+      currentOrderId: '',
+    })
   }
 
   return {
