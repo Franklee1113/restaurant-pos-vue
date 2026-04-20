@@ -36,6 +36,20 @@ export const StatusLabels: Record<OrderStatusValue, string> = {
   [OrderStatus.CANCELLED]: '已取消',
 }
 
+/**
+ * 操作按钮文案（动词开头，描述点击后执行的动作）
+ * 与 StatusLabels 分离，避免状态展示文案被操作语义污染
+ */
+export const ActionLabels: Record<OrderStatusValue, string> = {
+  [OrderStatus.PENDING]: '待确认',
+  [OrderStatus.COOKING]: '开始制作',
+  [OrderStatus.SERVING]: '开始上菜',
+  [OrderStatus.DINING]: '上菜完毕',
+  [OrderStatus.COMPLETED]: '确认结账',
+  [OrderStatus.SETTLED]: '确认清台',
+  [OrderStatus.CANCELLED]: '取消订单',
+}
+
 export const StatusColors: Record<OrderStatusValue, string> = {
   [OrderStatus.PENDING]: '#faad14',
   [OrderStatus.COOKING]: '#1890ff',
@@ -165,7 +179,7 @@ export function getStatusButtons(status: OrderStatusValue): Array<{
 
     return {
       status: nextStatus,
-      label: nextStatus === OrderStatus.CANCELLED ? '取消' : StatusLabels[nextStatus],
+      label: ActionLabels[nextStatus],
       type,
     }
   })

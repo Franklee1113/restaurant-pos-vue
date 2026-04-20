@@ -129,7 +129,7 @@ onRecordBeforeCreateRequest(
           if (tsRecords && tsRecords.length > 0) {
             const ts = tsRecords[0]
             if (ts.get('status') === 'dining' && ts.get('currentOrderId')) {
-              throw new Error('该桌台已被占用（有未清台订单），请先清台后再新建订单')
+              throw $app.newBadRequestError('该桌台已被占用（有未清台订单），请先清台后再新建订单', {})
             }
           }
         } catch (e) {

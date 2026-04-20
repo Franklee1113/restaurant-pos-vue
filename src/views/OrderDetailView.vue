@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { OrderAPI, DishAPI, TableStatusAPI, type Order, type OrderStatusValue, type Dish } from '@/api/pocketbase'
 import { useSettingsStore } from '@/stores/settings.store'
-import { OrderStatus, StatusLabels, StatusFlow, StatusBadgeClass as statusBadgeClass } from '@/utils/orderStatus'
+import { OrderStatus, StatusLabels, ActionLabels, StatusFlow, StatusBadgeClass as statusBadgeClass } from '@/utils/orderStatus'
 import { MoneyCalculator } from '@/utils/security'
 import { useToast } from '@/composables/useToast'
 import { globalConfirm } from '@/composables/useConfirm'
@@ -486,7 +486,7 @@ async function clearTable() {
                 class="w-full px-3 py-2 rounded-lg text-sm font-medium bg-blue-50 text-blue-700 border border-blue-100 hover:bg-blue-100 active:scale-[0.98] transition-transform disabled:opacity-50"
                 @click="updateStatus(status)"
               >
-                标记为{{ StatusLabels[status] }}
+                {{ ActionLabels[status] }}
               </button>
               <!-- P1-13: 取消按钮显示逻辑复用 StatusFlow，仅当允许 cancelled 流转时才显示 -->
               <button
@@ -495,7 +495,7 @@ async function clearTable() {
                 class="w-full px-3 py-2 rounded-lg text-sm font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 active:scale-[0.98] transition-transform disabled:opacity-50"
                 @click="updateStatus(OrderStatus.CANCELLED)"
               >
-                取消
+                取消订单
               </button>
               <button
                 :disabled="processing"

@@ -209,8 +209,8 @@ describe('OrderDetailView', () => {
 
     const buttons = wrapper.findAll('button')
     const labels = buttons.map((b) => b.text())
-    expect(labels.some((t) => t.includes('标记为制作中'))).toBe(true)
-    expect(labels.some((t) => t.includes('取消'))).toBe(true)
+    expect(labels.some((t) => t.includes('开始制作'))).toBe(true)
+    expect(labels.some((t) => t.includes('取消订单'))).toBe(true)
   })
 
   it('should render correct status buttons for cooking order', async () => {
@@ -220,8 +220,8 @@ describe('OrderDetailView', () => {
 
     const buttons = wrapper.findAll('button')
     const labels = buttons.map((b) => b.text())
-    expect(labels.some((t) => t.includes('标记为上菜中'))).toBe(true)
-    expect(labels.some((t) => t.includes('取消'))).toBe(true)
+    expect(labels.some((t) => t.includes('开始上菜'))).toBe(true)
+    expect(labels.some((t) => t.includes('取消订单'))).toBe(true)
   })
 
   it('should show "ended" hint for settled order', async () => {
@@ -249,7 +249,7 @@ describe('OrderDetailView', () => {
     const wrapper = mountOrderDetailView()
     await flushPromises()
 
-    const statusBtn = wrapper.findAll('button').find((b) => b.text().includes('标记为制作中'))
+    const statusBtn = wrapper.findAll('button').find((b) => b.text().includes('开始制作'))
     expect(statusBtn).toBeDefined()
     await statusBtn!.trigger('click')
     await flushPromises()
@@ -267,7 +267,7 @@ describe('OrderDetailView', () => {
     const wrapper = mountOrderDetailView()
     await flushPromises()
 
-    const statusBtn = wrapper.findAll('button').find((b) => b.text().includes('标记为制作中'))
+    const statusBtn = wrapper.findAll('button').find((b) => b.text().includes('开始制作'))
     await statusBtn!.trigger('click')
     await flushPromises()
 
@@ -282,7 +282,7 @@ describe('OrderDetailView', () => {
     const wrapper = mountOrderDetailView()
     await flushPromises()
 
-    const statusBtn = wrapper.findAll('button').find((b) => b.text().includes('标记为制作中'))
+    const statusBtn = wrapper.findAll('button').find((b) => b.text().includes('开始制作'))
     await statusBtn!.trigger('click')
     await flushPromises()
 
