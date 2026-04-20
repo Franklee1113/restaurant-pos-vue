@@ -5,6 +5,35 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.1.2] - 2026-04-20
+
+### 修复（KDS 与状态机）
+- **KDS 未完成菜品消失（P0）**：`KitchenDisplayView` 订单拉取过滤从只取 `pending`/`cooking` 改为**排除终态**（`completed`/`settled`/`cancelled`），`serving`/`dining` 订单中的未完成菜品继续展示
+- **KDS 状态回退非法流转（P0）**：厨师在 KDS 更新单品状态时，后端 `onRecordBeforeUpdateRequest` 自动推断整体状态，若推断出回退状态（如 `serving → cooking`）则保持当前状态不变，不再抛出非法流转错误
+- **原因**：服务员手动标记 `serving` 后，即使还有未制作菜品，订单状态也不应回退
+
+### 修复（桌台管理）
+- **桌台重复开台（P0）**：员工端可对未清台桌号创建新订单，无任何阻断
+  - 后端 `orders.pb.js`：`onRecordBeforeCreateRequest` 新增桌台占用检查，`dining` + `currentOrderId` 存在时直接阻止订单创建
+  - 前端 `OrderFormView.vue`：提交前调用 `TableStatusAPI.getTableStatus()`，占用时 Toast 阻断
+
+### 修复（数据加载与同步）
+- **OrderListView 沽空加载为空**：`onMounted` 补充 `DishAPI.getDishes()`，修复"今日沽空"抽屉数据为空
+- **菜品状态自动刷新**：`OrderDetailView` 10秒轮询 + `CustomerOrderView` 15秒轮询 + `visibilitychange` 即时刷新，解决员工端/顾客端/厨房端状态不同步
+
+### 修复（构建与部署）
+- **public-api 502**：部署脚本 `deploy.sh` Step 4b 增加 PocketBase 重启后自动重启 `public-api.service`
+- **类型检查恢复**：关闭 `noUncheckedIndexedAccess`，修复测试文件类型错误，`deploy.sh` 恢复 `npm run build`（含类型检查）
+
+### 改进（交互体验）
+- **订单状态操作按钮文案优化**：分离 `StatusLabels`（状态展示）与 `ActionLabels`（操作文案）
+  - 制作中 → 开始制作；上菜中 → 开始上菜；用餐中 → 上菜完毕；已结账 → 确认结账；已清台 → 确认清台；取消 → 取消订单
+  - `OrderListView` 与 `OrderDetailView` 已同步更新
+
+### 测试
+- 更新 `OrderDetailView.spec.ts`：同步按钮文案断言（「标记为制作中」→「开始制作」等）
+- 更新 `KitchenDisplayView.spec.ts`：同步 KDS 过滤条件断言
+
 ## [1.1.1] - 2026-04-20
 
 ### 修复（订单编辑权限）
