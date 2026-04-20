@@ -215,6 +215,7 @@ export interface Order {
   remark?: string
   source?: 'staff' | 'customer'
   customerPhone?: string
+  accessToken?: string
   cutlery?: {
     type: 'free' | 'charged'
     quantity: number

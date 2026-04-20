@@ -178,9 +178,12 @@ async function loadData() {
     if (session) {
       try {
         const order = await PublicOrderAPI.getOrder(session.orderIdValue, session)
-        if (order && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.SETTLED && order.status !== OrderStatus.DINING) {
+        if (order && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.SETTLED) {
           currentOrder.value = order
           guests.value = typeof order.guests === 'number' ? order.guests : 1
+        } else {
+          // 订单已结束，清除会话
+          session.clear()
         }
       } catch {
         // 会话过期或订单已结束，清除会话
@@ -188,13 +191,22 @@ async function loadData() {
       }
     }
 
-    // 如果通过会话未恢复，检查桌台是否有未完成订单（仅提示）
+    // 如果通过会话未恢复，检查桌台是否有未完成订单，自动加入
     if (!currentOrder.value && ts?.currentOrderId) {
       const orders = await PublicOrderAPI.getOrdersByTable(tableNo.value).catch(() => [])
       if (orders.length > 0) {
         const firstOrder = orders[0]
-        if (firstOrder && (firstOrder.status === OrderStatus.COMPLETED || firstOrder.status === OrderStatus.CANCELLED || firstOrder.status === OrderStatus.SETTLED || firstOrder.status === OrderStatus.DINING)) {
+        if (firstOrder && (firstOrder.status === OrderStatus.COMPLETED || firstOrder.status === OrderStatus.CANCELLED || firstOrder.status === OrderStatus.SETTLED)) {
           toast.info('该桌上一单已结束，请开始新点餐')
+        } else if (firstOrder) {
+          // 未完成订单：自动加入（新顾客或原顾客会话过期）
+          currentOrder.value = firstOrder
+          guests.value = typeof firstOrder.guests === 'number' ? firstOrder.guests : 1
+          // 从返回数据中提取 accessToken 创建新会话，支持追加菜品
+          if (firstOrder.accessToken) {
+            const newSession = new CustomerSession(firstOrder.id, firstOrder.accessToken)
+            newSession.persist()
+          }
         }
       }
     }
