@@ -477,6 +477,8 @@ sudo nginx -t && sudo systemctl reload nginx
 | 2026-04-20 | 订单操作按钮文案优化（方案A） | ✅ 已部署 v1.1.2 |
 | 2026-04-20 | 更新 CODE_CHECKLIST.md Bug 根因分析库（BUG-014~017） | ✅ 已完成 |
 | 2026-04-20 | 更新 CHANGELOG / 设计说明书 / project-notes 至 v1.1.2 | ✅ 已完成 |
+| 2026-04-20 | 顾客端 dining 状态误判修复 + 新顾客自动加入订单（方案B） | ✅ 已部署 v1.1.2 |
+| 2026-04-20 | Git checkpoint commit: 6b09a30 | ✅ 已提交 |
 
 ---
 
