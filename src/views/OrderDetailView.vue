@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { OrderAPI, DishAPI, TableStatusAPI, type Order, type OrderStatusValue, type Dish } from '@/api/pocketbase'
 import { useSettingsStore } from '@/stores/settings.store'
@@ -8,6 +8,7 @@ import { MoneyCalculator } from '@/utils/security'
 import { useToast } from '@/composables/useToast'
 import { globalConfirm } from '@/composables/useConfirm'
 import { useClearTable } from '@/composables/useClearTable'
+import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { printBill, printKitchenTicket } from '@/utils/printBill'
 import { useBluetoothPrinter, isBluetoothPrintSupported, type BluetoothPrintOrder } from '@/composables/useBluetoothPrinter'
 import EmptyState from '@/components/EmptyState.vue'
@@ -36,8 +37,15 @@ const dishMap = computed(() => {
 
 
 
+const { start: startAutoRefresh, stop: stopAutoRefresh } = useAutoRefresh(loadOrder, { interval: 10000, immediate: false })
+
 onMounted(() => {
   loadOrder()
+  startAutoRefresh()
+})
+
+onUnmounted(() => {
+  stopAutoRefresh()
 })
 
 // P1-15: 组件复用时（route params 变化）自动刷新订单数据

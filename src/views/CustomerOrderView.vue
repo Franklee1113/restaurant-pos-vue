@@ -6,6 +6,7 @@ import { PublicOrderAPI, PublicTableStatusAPI, PublicDishAPI, CustomerSession } 
 import { OrderStatus, generateOrderNo } from '@/utils/orderStatus'
 import { MoneyCalculator } from '@/utils/security'
 import { useToast } from '@/composables/useToast'
+import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useCart } from '@/composables/useCart'
 import { DISH_RULES, CATEGORY_ORDER, CATEGORY_META } from '@/config/dish.config'
 
@@ -113,15 +114,33 @@ function scrollCategoryIntoView(cat: string) {
   })
 }
 
+async function refreshOrder() {
+  if (!currentOrder.value?.id) return
+  const session = CustomerSession.restore()
+  if (!session) return
+  try {
+    const order = await PublicOrderAPI.getOrder(currentOrder.value.id, session)
+    if (order) {
+      currentOrder.value = order
+    }
+  } catch {
+    // 静默失败，避免干扰顾客体验
+  }
+}
+
+const { start: startAutoRefresh, stop: stopAutoRefresh } = useAutoRefresh(refreshOrder, { interval: 15000, immediate: false })
+
 onMounted(() => {
   if (!tableNo.value) {
     toast.error('无效的桌号')
     return
   }
   loadData()
+  startAutoRefresh()
 })
 
 onUnmounted(() => {
+  stopAutoRefresh()
   if (successTimer) {
     clearTimeout(successTimer)
     successTimer = null

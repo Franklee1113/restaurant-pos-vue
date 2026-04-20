@@ -114,6 +114,30 @@ onRecordBeforeCreateRequest(
       // ── 新增：校验菜品可售性（在金额计算之前）──
       validateItemsSoldOut(items)
 
+      // ── 新增：校验桌台是否被占用 ──
+      const tableNo = record.get('tableNo')
+      if (tableNo) {
+        try {
+          const tsRecords = $app.dao().findRecordsByFilter(
+            'table_status',
+            'tableNo = {:tableNo}',
+            '',
+            1,
+            0,
+            { tableNo: tableNo },
+          )
+          if (tsRecords && tsRecords.length > 0) {
+            const ts = tsRecords[0]
+            if (ts.get('status') === 'dining' && ts.get('currentOrderId')) {
+              throw new Error('该桌台已被占用（有未清台订单），请先清台后再新建订单')
+            }
+          }
+        } catch (e) {
+          if (e.message && e.message.indexOf('已被占用') !== -1) throw e
+          console.error('table occupancy check error:', e)
+        }
+      }
+
       // 解析 cutlery
       let cutlery = parseJSONField(record, 'cutlery', null)
 

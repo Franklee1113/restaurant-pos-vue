@@ -51,7 +51,7 @@ const { start: startAutoRefresh, stop: stopAutoRefresh } = useAutoRefresh(loadDa
 onMounted(() => {
   loadData()
   subscribeToOrders(
-    `status='${OrderStatus.PENDING}' || status='${OrderStatus.COOKING}'`,
+    `status!='${OrderStatus.COMPLETED}' && status!='${OrderStatus.SETTLED}' && status!='${OrderStatus.CANCELLED}'`,
     () => loadData(),
   ).then((unsub) => {
     unsubscribeRealtime.value = unsub
@@ -72,7 +72,7 @@ async function loadData() {
   loading.value = true
   error.value = ''
   try {
-    const filter = `status='${OrderStatus.PENDING}' || status='${OrderStatus.COOKING}'`
+    const filter = `status!='${OrderStatus.COMPLETED}' && status!='${OrderStatus.SETTLED}' && status!='${OrderStatus.CANCELLED}'`
     const res = await OrderAPI.getOrders(1, 100, filter)
     const newIds = res.items.map((o) => o.id + o.status + o.updated).join(',')
     const hadNewPending = res.items.some((o) => {

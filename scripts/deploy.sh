@@ -72,11 +72,11 @@ fi
 log_info "Nginx root 一致性检查通过: $NGINX_CONFIG_ROOT"
 
 # Step 1: 构建项目
-log_info "Step 1/6: 执行构建..."
+log_info "Step 1/7: 执行构建..."
 npm run build
 
 # Step 2: 备份当前生产环境
-log_info "Step 2/6: 备份当前生产环境..."
+log_info "Step 2/7: 备份当前生产环境..."
 mkdir -p "$BACKUP_DIR"
 if [ -d "$NGINX_ROOT" ]; then
   sudo cp -r "$NGINX_ROOT" "$BACKUP_DIR/pre-$TIMESTAMP"
@@ -84,7 +84,7 @@ if [ -d "$NGINX_ROOT" ]; then
 fi
 
 # Step 3: 部署前端文件
-log_info "Step 3/6: 部署前端文件..."
+log_info "Step 3/7: 部署前端文件..."
 if [ -d "$NGINX_ROOT/assets" ]; then
   sudo rm -rf "$NGINX_ROOT/assets"
 fi
@@ -92,7 +92,7 @@ sudo cp -r "$PROJECT_DIR/dist/assets" "$NGINX_ROOT/"
 sudo cp "$PROJECT_DIR/dist/index.html" "$NGINX_ROOT/"
 
 # Step 4: 同步后端 Hook 文件并重启 PocketBase
-log_info "Step 4/6: 同步后端 Hook 文件..."
+log_info "Step 4/7: 同步后端 Hook 文件..."
 if [ -d "$PROJECT_DIR/pb_hooks" ]; then
   sudo cp -r "$PROJECT_DIR/pb_hooks/"* "$PB_HOOKS_DIR/"
   log_info "pb_hooks 已同步到 $PB_HOOKS_DIR"
@@ -117,6 +117,16 @@ if ! sudo systemctl is-active --quiet pocketbase; then
   rollback
 fi
 log_info "PocketBase 运行正常"
+
+# Step 4b: 重启公共 API 服务（顾客端依赖）
+log_info "Step 4b/7: 重启公共 API 服务..."
+sudo systemctl restart public-api || sudo systemctl start public-api
+sleep 2
+if ! sudo systemctl is-active --quiet public-api; then
+  log_error "公共 API 服务启动失败！"
+  rollback
+fi
+log_info "公共 API 服务运行正常"
 
 # Step 5: 重启 Nginx
 log_info "Step 5/7: 重启 Nginx..."
@@ -165,12 +175,18 @@ if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "404
   API_OK=true
 fi
 
-if [ "$NGINX_OK" = true ] && [ "$API_OK" = true ]; then
+PUBLIC_API_OK=false
+PUBLIC_API_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/public/dishes 2>/dev/null || echo "000")
+if [ "$PUBLIC_API_CODE" = "200" ]; then
+  PUBLIC_API_OK=true
+fi
+
+if [ "$NGINX_OK" = true ] && [ "$API_OK" = true ] && [ "$PUBLIC_API_OK" = true ]; then
   log_info "✅ 部署成功！版本: $VERSION"
-  log_info "Nginx: OK, API: OK (HTTP $HTTP_CODE), 前端: OK ($REMOTE_INDEX_JS)"
+  log_info "Nginx: OK, API: OK (HTTP $HTTP_CODE), 公共API: OK (HTTP $PUBLIC_API_CODE), 前端: OK ($REMOTE_INDEX_JS)"
   log_info "如需回滚: sudo rm -rf $NGINX_ROOT && sudo cp -r $BACKUP_DIR/pre-$TIMESTAMP $NGINX_ROOT && sudo systemctl restart nginx"
   exit 0
 else
-  log_error "健康检查失败 - Nginx: $NGINX_OK, API: $API_OK (HTTP $HTTP_CODE)"
+  log_error "健康检查失败 - Nginx: $NGINX_OK, API: $API_OK (HTTP $HTTP_CODE), 公共API: $PUBLIC_API_OK (HTTP $PUBLIC_API_CODE)"
   rollback
 fi

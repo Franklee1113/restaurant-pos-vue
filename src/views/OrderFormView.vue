@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { OrderAPI, DishAPI, type Order, type Dish, type OrderItem, type CreateOrderPayload, subscribeToDishes } from '@/api/pocketbase'
+import { OrderAPI, DishAPI, TableStatusAPI, type Order, type Dish, type OrderItem, type CreateOrderPayload, subscribeToDishes } from '@/api/pocketbase'
 import { useSettingsStore } from '@/stores/settings.store'
 import { OrderStatus, generateOrderNo } from '@/utils/orderStatus'
 import { MoneyCalculator, Validators } from '@/utils/security'
@@ -443,6 +443,20 @@ async function submit() {
     finalAmount: orderSummary.value.final,
     remark: remark.value,
     cutlery: cutleryConfig.value,
+  }
+
+  // 新建订单时前置检查桌台占用状态
+  if (!isEdit.value && tableNo.value) {
+    try {
+      const ts = await TableStatusAPI.getTableStatus(tableNo.value)
+      if (ts && ts.status === 'dining' && ts.currentOrderId) {
+        toast.error(`桌台 ${tableNo.value} 已被占用（有未清台订单），请先清台后再新建订单`)
+        return
+      }
+    } catch (err: unknown) {
+      // 查询失败不阻断，让后端兜底
+      console.error('桌台状态查询失败:', err)
+    }
   }
 
   submitting.value = true

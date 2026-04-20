@@ -455,12 +455,18 @@ sudo nginx -t && sudo systemctl reload nginx
 | 2026-04-20 | 更新项目文档至 v1.1.0 | ✅ 已完成 |
 | 2026-04-20 | 修复 Nginx root 与 deploy.sh 目标目录不一致 | ✅ 已修复 |
 | 2026-04-20 | deploy.sh 增加 Nginx root 预检 + 部署验证 | ✅ 已实施 |
+| 2026-04-20 | deploy.sh 增加公共 API 服务自动重启 + 健康检查 | ✅ 已实施 |
 | 2026-04-20 | 同步 pb_hooks/pb_migrations 到生产环境 | ✅ 已同步 |
 | 2026-04-20 | 清空旧部署目录 /usr/share/nginx/html/ | ✅ 已清理 |
 | 2026-04-20 | 已结账订单编辑阻断（completed/settled 不可编辑） | ✅ 已部署 v1.1.1 |
 | 2026-04-20 | deploy.sh 改为 build-only（跳过类型检查阻塞） | ✅ 已实施 |
 | 2026-04-20 | 修复多处 noUncheckedIndexedAccess 类型错误 | ✅ 已完成 |
 | 2026-04-20 | 更新 CHANGELOG / project-notes / 设计说明书 | ✅ 已完成 |
+| 2026-04-20 | 修复 OrderListView `allDishes` 未加载导致 SoldOutDrawer 为空 | ✅ 已部署 |
+| 2026-04-20 | 关闭 `noUncheckedIndexedAccess` + 修复测试类型 + 恢复 `npm run build` | ✅ 已实施 |
+| 2026-04-20 | 补充 `OrderListView.spec.ts`（11 用例） | ✅ 已通过 |
+| 2026-04-20 | 创建 `docs/CHECKLIST.md` 功能开发自检清单 | ✅ 已完成 |
+| 2026-04-20 | Git checkpoint commit: e25689e | ✅ 已提交 |
 
 ---
 

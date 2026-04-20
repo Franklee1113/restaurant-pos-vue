@@ -149,7 +149,7 @@ describe('KitchenDisplayView', () => {
     expect(vi.mocked(OrderAPI.getOrders)).toHaveBeenCalledWith(
       1,
       100,
-      expect.stringContaining(OrderStatus.PENDING),
+      expect.stringContaining("status!='completed'"),
     )
   })
 
