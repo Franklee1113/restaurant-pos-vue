@@ -424,19 +424,34 @@ onRecordBeforeUpdateRequest(
         else if (anyCooking) inferred = 'cooking'
 
         if (oldStatus !== inferred) {
-          const flow = {
-            pending: ['cooking', 'cancelled'],
-            cooking: ['serving', 'cancelled'],
-            serving: ['dining', 'cancelled'],
-            dining: ['completed', 'cancelled'],
-            completed: ['settled'],
-            settled: [],
-            cancelled: [],
+          const statusPriority = {
+            pending: 0,
+            cooking: 1,
+            serving: 2,
+            dining: 3,
+            completed: 4,
+            settled: 5,
+            cancelled: -1,
           }
-          if ((flow[oldStatus] || []).indexOf(inferred) === -1) {
-            throw new Error('非法状态流转: ' + oldStatus + ' -> ' + inferred)
+
+          // 单品状态更新不允许订单整体状态回退（如 serving -> cooking）
+          if (statusPriority[inferred] < statusPriority[oldStatus]) {
+            // 保持当前状态，静默忽略回退推断
+          } else {
+            const flow = {
+              pending: ['cooking', 'cancelled'],
+              cooking: ['serving', 'cancelled'],
+              serving: ['dining', 'cancelled'],
+              dining: ['completed', 'cancelled'],
+              completed: ['settled'],
+              settled: [],
+              cancelled: [],
+            }
+            if ((flow[oldStatus] || []).indexOf(inferred) === -1) {
+              throw new Error('非法状态流转: ' + oldStatus + ' -> ' + inferred)
+            }
+            record.set('status', inferred)
           }
-          record.set('status', inferred)
         }
       }
     } catch (err) {
