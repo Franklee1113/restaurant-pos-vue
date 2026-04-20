@@ -44,7 +44,7 @@ describe('useClearTable', () => {
     expect(res.reason).toBe('unfinished')
   })
 
-  it('COMPLETED 订单应阻止清台', async () => {
+  it('COMPLETED 订单应允许清台（已结账可直接清台）', async () => {
     vi.mocked(TableStatusAPI.getTableStatus).mockResolvedValue({
       id: 'ts1', tableNo: 'A1', status: 'dining', currentOrderId: 'o1',
     })
@@ -54,8 +54,7 @@ describe('useClearTable', () => {
     } as any)
     const { checkCanClearTable } = useClearTable()
     const res = await checkCanClearTable('A1')
-    expect(res.canClear).toBe(false)
-    expect(res.reason).toBe('completed')
+    expect(res.canClear).toBe(true)
   })
 
   it('正常状态应允许清台', async () => {

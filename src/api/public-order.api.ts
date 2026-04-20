@@ -55,7 +55,17 @@ export class CustomerSession {
 export const PublicDishAPI = {
   async getDishes() {
     const res = await fetchWithTimeout(`${PB_URL}/public/dishes`)
-    const data = await handleResponse<{ items: Array<{ id: string; name: string; price: number; category: string; description?: string }> }>(res)
+    const data = await handleResponse<{
+      items: Array<{
+        id: string
+        name: string
+        price: number
+        category: string
+        description?: string
+        soldOut?: boolean
+        soldOutNote?: string
+      }>
+    }>(res)
     if (!data) throw new APIError('获取菜品失败', 500)
     return data
   },

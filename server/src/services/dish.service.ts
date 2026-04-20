@@ -7,6 +7,8 @@ export interface DishRecord {
   price: number
   category: string
   description?: string
+  soldOut?: boolean        // 新增
+  soldOutNote?: string     // 新增
 }
 
 export class DishService {
@@ -24,6 +26,8 @@ export class DishService {
       price: r.price,
       category: r.category,
       description: r.description,
+      soldOut: r.soldOut || false,
+      soldOutNote: r.soldOutNote || '',
     }))
   }
 
@@ -41,6 +45,8 @@ export class DishService {
       price: r.price,
       category: r.category,
       description: r.description,
+      soldOut: r.soldOut || false,
+      soldOutNote: r.soldOutNote || '',
     }))
   }
 
@@ -82,6 +88,9 @@ export class DishService {
       }
       if (dish.price !== item.price) {
         throw new Error(`菜品 "${item.name}" 价格异常，请刷新后重试`)
+      }
+      if (dish.soldOut) {
+        throw new Error(`菜品 "${item.name}" 已售罄，请刷新后重试`)
       }
     }
   }

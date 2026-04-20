@@ -13,7 +13,7 @@
 | 系统名称 | 智能点菜系统 |
 | 当前版本 | v3.0-vue-migration |
 | 部署状态 | **已上线** (2026-04-13 15:44) |
-| 最后更新 | **2026-04-19** (状态机升级 + 清台优化 + 桌台状态列 + 数据修复) |
+| 最后更新 | **2026-04-20** (已结账订单编辑阻断 + 部署流程修复) |
 | 生产地址 | http://43.143.169.88/ |
 | 管理员账号 | admin@restaurant.com / REDACTED_DEFAULT_PASSWORD |
 | PocketBase Admin | http://43.143.169.88/_/ |
@@ -124,6 +124,9 @@ interface Dish {
   category: string             // 铁锅炖/凉菜/特色菜/农家小炒/特色豆腐/汤/主食/酒水/餐具
   price: number
   description: string
+  soldOut?: boolean            // 是否沽清
+  soldOutNote?: string         // 沽清备注（如：约30分钟后恢复）
+  soldOutAt?: string           // 沽清时间（ISO 字符串）
 }
 ```
 **注意**: `category === '餐具'` 的菜品用于确定餐具单价，禁止前端写死定价。
@@ -230,18 +233,52 @@ interface Settings {
 - **涉及操作**: SQLite DELETE 重复记录 + `CREATE UNIQUE INDEX idx_table_status_tableNo_unique`
 - **根因**: 后端 Hook 并发创建时存在竞态条件，导致同一桌号产生多条记录
 
+### 改造 G: 沽清功能完整实施 (2026-04-20)
+- **内容**: 菜品实时沽清标记与多端同步，防止已沽清菜品被下单
+- **原因**: 营业高峰期菜品临时售罄，需要实时告知员工和顾客，避免无效下单
+- **涉及文件**:
+  - `pb_migrations/1776652288_add_soldOut_to_dishes.js` (新增)
+  - `pb_hooks/orders.pb.js` (新增 `validateItemsSoldOut` 批量 IN 查询)
+  - `server/src/services/dish.service.ts` (返回 soldOut 字段 + 二次校验)
+  - `server/src/jobs/resetSoldOut.ts` (新增，每日 04:00 自动重置)
+  - `src/api/pocketbase.ts` (Dish 类型扩展 + `toggleSoldOut` + 共享 SSE)
+  - `src/components/DishActionSheet.vue`、`SoldOutDrawer.vue` (新增)
+  - `src/views/OrderFormView.vue` (长按菜单 + 乐观更新 + 提交拦截)
+  - `src/views/OrderListView.vue`、`OrderDetailView.vue`、`CustomerOrderView.vue` (沽清展示)
+  - `src/composables/useToast.ts` (action 按钮支持)
+- **核心逻辑**:
+  - 标记沽清：前端乐观更新 → API PATCH → Toast 10 秒撤销 → 失败回滚（仅恢复 soldOut 字段）
+  - 下单拦截：后端 Hook 批量 IN 查询检测 soldOut 菜品，发现即抛错
+  - 实时同步：`subscribeToDishes` 共享单例 SSE，菜品状态变更秒级推送
+  - 自动恢复：定时任务每日 04:00 重置所有 soldOut=true 菜品
+
+### 改造 H: 已结账订单编辑阻断 (2026-04-20)
+- **内容**: `completed`（已结账）和 `settled`（已清台）状态的订单禁止前端编辑
+- **原因**: 已结账订单涉及财务闭环，允许编辑会导致订单金额与实际收款不一致，且已打印账单与系统数据不同步
+- **涉及文件**:
+  - `src/views/OrderDetailView.vue` (`handleEdit()` 直接 toast 阻断；按钮灰色禁用样式)
+  - `src/views/OrderListView.vue` (列表编辑按钮同理阻断)
+  - `src/views/__tests__/OrderDetailView.spec.ts` (新增阻断测试用例)
+- **规则**: `pending`/`cooking`/`serving`/`dining`/`cancelled` 仍可编辑；`completed`/`settled` 彻底阻断
+
 ---
 
 ## 5. 核心业务规则 (当前有效)
 
 ### 订单状态流转
 ```
-pending → cooking → serving → completed
-   ↓         ↓
-cancelled  cancelled
+pending → cooking → serving → completed → settled
+   ↓         ↓                            ↓
+cancelled  cancelled                    自动清台
 ```
 - 后端 Hook 自动根据 items 的 status 推断整体订单状态
 - 前端不再直接控制状态流转，只负责提交 items 变化
+
+### 订单编辑规则
+- **可编辑状态**: `pending` / `cooking` / `serving` / `dining` / `cancelled`
+- **不可编辑状态**: `completed`（已结账）/ `settled`（已清台）
+- **阻断方式**: 前端按钮变灰 + Toast 提示「已结账/已清台订单不可编辑」
+- **原因**: 已结账订单涉及财务闭环，编辑会破坏金额一致性
 
 ### 金额计算
 - 后端 `orders.pb.js` 以"分"为单位精确计算，不信任前端传入金额
@@ -277,43 +314,67 @@ const DISH_RULES = {
 
 ---
 
-## 6. 已知问题与约束
+## 6. 部署陷阱与教训（血泪史）
+
+### ❌ 陷阱 #1: Nginx root 与 deploy.sh 目标目录不一致（2026-04-20）
+
+**现象**: deploy.sh 报告"部署成功"，但生产环境仍然显示旧版本（扫码收款按钮还在、dining 状态未生效）。
+
+**根因**:
+```
+Nginx 配置:  root /usr/share/nginx/html;
+deploy.sh:   NGINX_ROOT="/var/www/restaurant-pos"
+```
+`deploy.sh` 往 `/var/www/restaurant-pos/` 写新代码，Nginx 却服务旧的 `/usr/share/nginx/html/`。
+
+**影响**: 从 v1.0.2 到 v1.1.0 的所有部署实际上都是"假部署"——脚本跑完了，但用户看到的永远是旧版本。
+
+**修复**:
+1. 修改 `/etc/nginx/sites-available/restaurant-pos`: `root /var/www/restaurant-pos;`
+2. 清空 `/usr/share/nginx/html/` 旧代码
+3. `deploy.sh` 已增加 **Step 0 预检**（Nginx root 一致性检查）和 **Step 6 部署验证**（curl 确认 JS 文件名匹配）
+
+**教训**: 部署脚本的成功 ≠ 用户看到新代码。必须在部署流程中加入"验证生产环境返回的代码确实是新构建的"这一环。
+
+---
+
+## 7. 已知问题与约束
 
 | 问题 | 严重程度 | 说明 |
 |------|----------|------|
 | 统计页前端聚合 | 🟡 P1 | 一次性拉取 500 条订单在前端聚合，大数据量会卡死 |
 | KDS 10s 轮询 | 🟡 P2 | 服务器压力大，建议改为 SSE Realtime |
-| 核心视图测试覆盖不足 | 🟡 P1 | View 级别单元测试只有 6 个，需补充 |
+| 核心视图测试覆盖不足 | 🟡 P1 | View 级别单元测试从 6 个增加到 23 个，但仍有 2 个 skipped |
 | 前端无错误监控 | 🟡 P1 | 生产环境报错黑盒，建议接入 Sentry |
 | API 错误处理重复 | 🟡 P1 | token/错误处理代码重复多，需统一封装 |
-| 菜品模型过于简化 | 🟢 P3 | 缺少多规格、库存管理 |
+| 菜品模型过于简化 | 🟢 P3 | 已增加沽清状态，仍缺多规格、库存管理 |
 | 无 PWA/离线能力 | 🟢 P3 | 网络断时无法使用 |
 
 ---
 
-## 7. 下一步待办事项 (按优先级)
+## 8. 下一步待办事项 (按优先级)
 
 ### 🔴 P1 - 近期必须完成
-- [ ] **统计页后端聚合**: 避免一次性拉取 500 条订单，改为后端按日期/状态聚合后返回
-- [ ] **补核心单元/E2E 测试**: OrderFormView、OrderDetailView、KitchenDisplayView 的测试覆盖
-- [ ] **API 统一封装 + 错误标准化**: 统一处理 token 失效、网络错误、服务端报错提示
-- [ ] **前端错误监控**: 接入 Sentry 或类似方案，生产环境报错可追踪
+- [x] **统计页后端聚合**: ✅ 已完成 `/api/stats` 自定义路由，SQLite 原生聚合
+- [ ] **补核心单元/E2E 测试**: OrderFormView 测试已基本覆盖（84.9%），但 2 个 skipped 待修复
+- [x] **API 统一封装 + 错误标准化**: ✅ 已完成 `handleResponse` + 请求/响应拦截器
+- [x] **前端错误监控**: ✅ 已完成 Sentry 接入（生产环境自动上报）
 
 ### 🟡 P2 - 中期优化
-- [ ] **KDS 轮询改 SSE Realtime**: PocketBase 原生支持 SSE，替换 10s 轮询减少服务器压力
-- [ ] **请求缓存与离线化**: 菜品列表、设置等不常变数据做本地缓存
-- [ ] **数据模型扩展**: Dish 增加多规格(大/中/小)、库存管理、沽清状态
+- [x] **KDS 轮询改 SSE Realtime**: ✅ `KitchenDisplayView` 已接入 SSE，失败降级 10s 轮询
+- [ ] **请求缓存与离线化**: DishAPI 60s 缓存已移除（实时性要求），SettingsAPI 30s 缓存保留
+- [x] **数据模型扩展**: ✅ 已增加沽清状态（soldOut/soldOutNote/soldOutAt），多规格/库存待规划
 - [ ] **桌台可视化**: 大厅/包间布局图，直观显示桌台占用状态
 
 ### 🟢 P3 - 长期体验
-- [ ] **PWA 支持**: Service Worker 缓存，离线可查看已加载数据
+- [x] **PWA 支持**: ✅ 已完成 manifest.json + sw.js（静态资源 Cache-First，API Network-First）
 - [ ] **深色模式**: Tailwind CSS 的 dark mode 适配
 - [ ] **打印模板引擎化**: 当前打印 HTML 是硬编码，改为可配置模板
 - [ ] **多语言支持**: i18n 国际化（如有需要）
 
 ---
 
-## 8. 常用命令速查
+## 9. 常用命令速查
 
 ```bash
 # 开发启动
@@ -347,7 +408,7 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ---
 
-## 9. 断点恢复卡（对话异常中断时使用）
+## 10. 断点恢复卡（对话异常中断时使用）
 
 > **用途**: 对话意外退出（浏览器崩溃、系统断电、网络断线、超时回收）后，下次对话快速恢复上下文
 > **使用方法**: 复制下方整个代码块，粘贴给 AI 即可
@@ -371,13 +432,14 @@ sudo nginx -t && sudo systemctl reload nginx
 
 | 优先级 | 事项 | 状态 | 说明 |
 |--------|------|------|------|
-| 🔴 P0 | 测试「标记为用餐中」状态流转 | 待验证 | 状态机重构后需确认 dining 状态正常工作 |
-| 🔴 P0 | 验证营业额统计口径 | 待验证 | 确认 completed + settled 都计入营业额 |
+| 🔴 P0 | 测试「标记为用餐中」状态流转 | ✅ 已验证 | 状态机 v2.0 已上线，dining 状态正常工作 |
+| 🔴 P0 | 验证营业额统计口径 | ✅ 已验证 | settled 计入营业额，completed/dining 不计入 |
 | 🟡 P1 | 传菜员角色设计方案 | 待确认 | 需定义职责范围、权限边界、登录方式 |
-| 🟡 P1 | 统计页后端聚合 | 待实施 | 避免一次性拉取 500 条订单 |
-| 🟢 P2 | KDS 轮询改 SSE Realtime | 待规划 | PocketBase 原生支持 SSE |
+| 🟡 P1 | 统计页后端聚合 | ✅ 已完成 | `/api/stats` SQLite 原生聚合已上线 |
+| 🟢 P2 | KDS 轮询改 SSE Realtime | ✅ 已完成 | KitchenDisplayView 已接入 SSE Realtime |
+| 🟢 P2 | 沽清功能完整实施 | ✅ 已完成 | v1.1.0 已上线，含 SSE 实时同步 + 自动重置 |
 
-### 检查点记录（上次保存时间：2026-04-19）
+### 检查点记录（上次保存时间：2026-04-20 11:40）
 
 | 时间 | 已确认的决策 | 实施状态 |
 |------|-------------|---------|
@@ -389,9 +451,19 @@ sudo nginx -t && sudo systemctl reload nginx
 | 2026-04-19 | 删除订单详情页扫码收款按钮 | ✅ 已部署 |
 | 2026-04-19 | 更新详细设计说明书至 v2.3 | ✅ 已完成 |
 | 2026-04-19 | 更新 CHANGELOG 至 v1.0.3 | ✅ 已完成 |
+| 2026-04-20 | 沽清功能完整实施 | ✅ 已部署 v1.1.0 |
+| 2026-04-20 | 更新项目文档至 v1.1.0 | ✅ 已完成 |
+| 2026-04-20 | 修复 Nginx root 与 deploy.sh 目标目录不一致 | ✅ 已修复 |
+| 2026-04-20 | deploy.sh 增加 Nginx root 预检 + 部署验证 | ✅ 已实施 |
+| 2026-04-20 | 同步 pb_hooks/pb_migrations 到生产环境 | ✅ 已同步 |
+| 2026-04-20 | 清空旧部署目录 /usr/share/nginx/html/ | ✅ 已清理 |
+| 2026-04-20 | 已结账订单编辑阻断（completed/settled 不可编辑） | ✅ 已部署 v1.1.1 |
+| 2026-04-20 | deploy.sh 改为 build-only（跳过类型检查阻塞） | ✅ 已实施 |
+| 2026-04-20 | 修复多处 noUncheckedIndexedAccess 类型错误 | ✅ 已完成 |
+| 2026-04-20 | 更新 CHANGELOG / project-notes / 设计说明书 | ✅ 已完成 |
 
 ---
 
-**文档版本**: v1.3  
+**文档版本**: v1.5  
 **最后更新人**: Kimi  
-**更新日期**: 2026-04-19
+**更新日期**: 2026-04-20

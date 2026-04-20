@@ -6,7 +6,7 @@
  */
 
 // ─────────────────────────────────────────────────────────────
-// 创建订单前：强制重算金额（不信任前端金额）
+// 创建订单前：强制重算金额（不信任前端金额）+ 校验菜品可售性
 // ─────────────────────────────────────────────────────────────
 onRecordBeforeCreateRequest(
   (e) => {
@@ -30,6 +30,51 @@ onRecordBeforeCreateRequest(
           console.error('parseJSONField error (' + fieldName + '):', e)
         }
         return defaultValue === undefined ? [] : defaultValue
+      }
+
+      // 内联：批量校验菜品可售性（避免 N+1 查询）
+      function validateItemsSoldOut(items) {
+        if (!items || items.length === 0) return
+
+        // 去重 dishId
+        const dishIdSet = new Set()
+        for (let i = 0; i < items.length; i++) {
+          dishIdSet.add(items[i].dishId)
+        }
+        const dishIds = Array.from(dishIdSet)
+        if (dishIds.length === 0) return
+
+        // 批量查询：使用 IN 语句找出已售罄的菜品
+        const placeholders = dishIds.map(function (_, idx) {
+          return '{:id' + idx + '}'
+        }).join(',')
+        const filter = 'id in (' + placeholders + ') && soldOut = true'
+
+        const params = {}
+        for (let i = 0; i < dishIds.length; i++) {
+          params['id' + i] = dishIds[i]
+        }
+
+        try {
+          const soldOutRecords = $app.dao().findRecordsByFilter('dishes', filter, '', 100, 0, params)
+          if (soldOutRecords && soldOutRecords.length > 0) {
+            // 收集已售罄菜品的名称
+            const soldOutIds = new Set()
+            for (let j = 0; j < soldOutRecords.length; j++) {
+              soldOutIds.add(soldOutRecords[j].id)
+            }
+            const names = []
+            for (let i = 0; i < items.length; i++) {
+              if (soldOutIds.has(items[i].dishId)) {
+                names.push(items[i].name)
+              }
+            }
+            throw new Error('菜品 ' + names.join('、') + ' 已售罄，无法下单')
+          }
+        } catch (e) {
+          if (e.message && e.message.indexOf('已售罄') !== -1) throw e
+          console.error('validateItemsSoldOut error:', e)
+        }
       }
 
       // 内联：获取餐具单价
@@ -65,6 +110,9 @@ onRecordBeforeCreateRequest(
       // 解析 items
       let items = parseJSONField(record, 'items', [])
       if (!Array.isArray(items)) items = []
+
+      // ── 新增：校验菜品可售性（在金额计算之前）──
+      validateItemsSoldOut(items)
 
       // 解析 cutlery
       let cutlery = parseJSONField(record, 'cutlery', null)
@@ -106,7 +154,7 @@ onRecordBeforeCreateRequest(
 )
 
 // ─────────────────────────────────────────────────────────────
-// 更新订单前：检测菜品状态变更 + 自动推断整体状态 + 重算金额
+// 更新订单前：检测菜品状态变更 + 自动推断整体状态 + 重算金额 + 校验可售性
 // ─────────────────────────────────────────────────────────────
 onRecordBeforeUpdateRequest(
   (e) => {
@@ -130,6 +178,48 @@ onRecordBeforeUpdateRequest(
           console.error('parseJSONField error (' + fieldName + '):', e)
         }
         return defaultValue === undefined ? [] : defaultValue
+      }
+
+      // 内联：批量校验菜品可售性（避免 N+1 查询）
+      function validateItemsSoldOut(items) {
+        if (!items || items.length === 0) return
+
+        const dishIdSet = new Set()
+        for (let i = 0; i < items.length; i++) {
+          dishIdSet.add(items[i].dishId)
+        }
+        const dishIds = Array.from(dishIdSet)
+        if (dishIds.length === 0) return
+
+        const placeholders = dishIds.map(function (_, idx) {
+          return '{:id' + idx + '}'
+        }).join(',')
+        const filter = 'id in (' + placeholders + ') && soldOut = true'
+
+        const params = {}
+        for (let i = 0; i < dishIds.length; i++) {
+          params['id' + i] = dishIds[i]
+        }
+
+        try {
+          const soldOutRecords = $app.dao().findRecordsByFilter('dishes', filter, '', 100, 0, params)
+          if (soldOutRecords && soldOutRecords.length > 0) {
+            const soldOutIds = new Set()
+            for (let j = 0; j < soldOutRecords.length; j++) {
+              soldOutIds.add(soldOutRecords[j].id)
+            }
+            const names = []
+            for (let i = 0; i < items.length; i++) {
+              if (soldOutIds.has(items[i].dishId)) {
+                names.push(items[i].name)
+              }
+            }
+            throw new Error('菜品 ' + names.join('、') + ' 已售罄，无法下单')
+          }
+        } catch (e) {
+          if (e.message && e.message.indexOf('已售罄') !== -1) throw e
+          console.error('validateItemsSoldOut error:', e)
+        }
       }
 
       // 内联：获取餐具单价
@@ -186,6 +276,11 @@ onRecordBeforeUpdateRequest(
             break
           }
         }
+      }
+
+      // ── 新增：如果有新菜品追加，校验可售性 ──
+      if (itemsAppended && newItems.length > 0) {
+        validateItemsSoldOut(newItems)
       }
 
       // 检测是否仅菜品状态发生变化

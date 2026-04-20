@@ -196,6 +196,18 @@ async function submitOrder() {
     toast.error('请至少选择一道菜品')
     return
   }
+
+  // 购物车沽清校验
+  const soldOutItems = cart.value.filter((item) => {
+    const dish = dishes.value.find((d) => d.id === item.dishId)
+    return dish?.soldOut
+  })
+  if (soldOutItems.length > 0) {
+    toast.error(`以下菜品已沽清，已自动移除：${soldOutItems.map((i) => i.name).join('、')}`)
+    cart.value = cart.value.filter((item) => !soldOutItems.find((s) => s.dishId === item.dishId))
+    return
+  }
+
   submitting.value = true
   try {
     const remark = orderRemark.value.trim()
@@ -453,7 +465,10 @@ async function submitOrder() {
           <div
             v-for="dish in filteredDishes"
             :key="dish.id"
-            class="group relative flex items-center gap-3 overflow-hidden rounded-2xl bg-white p-3 shadow-sm transition-all active:scale-[0.99]"
+            :class="[
+              'group relative flex items-center gap-3 overflow-hidden rounded-2xl p-3 shadow-sm transition-all',
+              dish.soldOut ? 'bg-gray-100 opacity-60' : 'bg-white active:scale-[0.99]'
+            ]"
           >
             <!-- Info -->
             <div class="min-w-0 flex-1 pl-1">

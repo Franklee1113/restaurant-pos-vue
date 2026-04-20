@@ -255,6 +255,9 @@ export interface Dish {
   price: number
   category: string
   description?: string
+  soldOut?: boolean        // 是否沽清
+  soldOutNote?: string     // 沽清备注
+  soldOutAt?: string       // ISO 时间，用于排序和追溯
 }
 
 export interface TableStatus {
@@ -415,15 +418,11 @@ export const OrderAPI = {
 
 export const DishAPI = {
   // 权限收紧后，dishes 查询需携带认证 token
+  // P0-2: 移除缓存，避免沽清状态延迟生效（66 道菜数据量极小，全量拉取性能可接受）
   async getDishes(): Promise<ListResult<Dish>> {
-    const cacheKey = 'dishes:all'
-    const cached = apiCache.get<ListResult<Dish>>(cacheKey)
-    if (cached) return cached
-
     const url = `${PB_URL}/collections/${COLLECTION_DISHES}/records?perPage=100&sort=name`
     const res = await privateRequest<ListResult<Dish>>(url)
     if (!res) throw new APIError('获取菜品列表失败', 500)
-    apiCache.set(cacheKey, res, 60_000)
     return res
   },
 
@@ -468,8 +467,21 @@ export const DishAPI = {
   async deleteDish(id: string): Promise<boolean> {
     const url = `${PB_URL}/collections/${COLLECTION_DISHES}/records/${encodeURIComponent(id)}`
     await privateRequest<unknown>(url, { method: 'DELETE' })
-    apiCache.clear('dishes:all')
     return true
+  },
+
+  async toggleSoldOut(id: string, soldOut: boolean, note?: string): Promise<Dish> {
+    const url = `${PB_URL}/collections/${COLLECTION_DISHES}/records/${encodeURIComponent(id)}`
+    const res = await privateRequest<Dish>(url, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        soldOut,
+        soldOutNote: note || '',
+        soldOutAt: soldOut ? new Date().toISOString() : null,
+      }),
+    })
+    if (!res) throw new APIError('更新沽清状态失败', 500)
+    return res
   },
 }
 
@@ -501,7 +513,18 @@ export const PublicOrderAPI = {
     return res?.items || []
   },
 
-  async appendOrderItems(id: string, newItems: OrderItem[]): Promise<Order> {
+  async appendOrderItems(id: string, newItems: OrderItem[], dishesMap?: Map<string, Dish>): Promise<Order> {
+    // P1-4: 前端校验 soldOut 菜品，避免无效请求
+    if (dishesMap) {
+      const soldOutItems = newItems.filter((item) => dishesMap.get(item.dishId)?.soldOut)
+      if (soldOutItems.length > 0) {
+        throw new APIError(
+          `以下菜品已沽清：${soldOutItems.map((i) => i.name).join('、')}`,
+          400,
+        )
+      }
+    }
+
     const orderRes = await publicRequest<Order>(
       `${PB_URL}/collections/${COLLECTION_ORDERS}/records/${encodeURIComponent(id)}`,
     )
@@ -650,6 +673,72 @@ export async function subscribeToOrders(
 
   return () => {
     es.close()
+  }
+}
+
+// P0-4: 共享单例 SSE 连接，避免连接数膨胀
+let sharedDishesUnsubscribe: (() => void) | null = null
+const sharedDishesCallbacks = new Set<(record: Dish) => void>()
+
+async function createDishesSSEConnection(onUpdate: (record: Dish) => void): Promise<() => void> {
+  if (typeof EventSource === 'undefined') {
+    throw new Error('EventSource not supported')
+  }
+
+  const authRes = await privateRequest<{ clientId: string }>(`${PB_URL}/realtime`, {
+    method: 'POST',
+  })
+  if (!authRes) throw new APIError('获取实时连接失败', 500)
+  const { clientId } = authRes
+
+  const es = new EventSource(`${PB_URL}/realtime?clientId=${clientId}`)
+
+  const doSubscribe = () => {
+    fetch(`${PB_URL}/realtime/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId,
+        subscriptions: { [COLLECTION_DISHES]: '' },
+      }),
+    }).catch(() => {})
+  }
+
+  es.addEventListener('PB_CONNECT', doSubscribe)
+
+  es.addEventListener(COLLECTION_DISHES, (e) => {
+    try {
+      const data = JSON.parse((e as MessageEvent).data)
+      if (data.record) onUpdate(data.record)
+    } catch { /* ignore */ }
+  })
+
+  return () => {
+    es.close()
+  }
+}
+
+export async function subscribeToDishes(
+  onUpdate: (record: Dish) => void,
+): Promise<() => void> {
+  // 注册回调
+  sharedDishesCallbacks.add(onUpdate)
+
+  // 首次订阅时建立连接
+  if (!sharedDishesUnsubscribe) {
+    const unsub = await createDishesSSEConnection((record) => {
+      sharedDishesCallbacks.forEach((cb) => cb(record))
+    })
+    sharedDishesUnsubscribe = unsub
+  }
+
+  // 返回注销函数
+  return () => {
+    sharedDishesCallbacks.delete(onUpdate)
+    if (sharedDishesCallbacks.size === 0 && sharedDishesUnsubscribe) {
+      sharedDishesUnsubscribe()
+      sharedDishesUnsubscribe = null
+    }
   }
 }
 

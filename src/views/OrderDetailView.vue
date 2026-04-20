@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { OrderAPI, TableStatusAPI, type Order, type OrderStatusValue } from '@/api/pocketbase'
+import { OrderAPI, DishAPI, TableStatusAPI, type Order, type OrderStatusValue, type Dish } from '@/api/pocketbase'
 import { useSettingsStore } from '@/stores/settings.store'
 import { OrderStatus, StatusLabels, StatusFlow, StatusBadgeClass as statusBadgeClass } from '@/utils/orderStatus'
 import { MoneyCalculator } from '@/utils/security'
@@ -23,7 +23,16 @@ const order = ref<Order | null>(null)
 const loading = ref(false)
 const error = ref('')
 const processing = ref(false)
+const dishes = ref<Dish[]>([])
 const { checkCanClearTable, executeClearTable } = useClearTable()
+
+const dishMap = computed(() => {
+  const map = new Map<string, Dish>()
+  for (const d of dishes.value) {
+    map.set(d.id, d)
+  }
+  return map
+})
 
 
 
@@ -41,6 +50,13 @@ async function loadOrder() {
   error.value = ''
   try {
     order.value = await OrderAPI.getOrder(orderId.value)
+    // 并行加载菜品数据（用于显示 soldOut 状态）
+    try {
+      const dishRes = await DishAPI.getDishes()
+      dishes.value = dishRes.items
+    } catch {
+      // 失败不影响主流程
+    }
   } catch (err: unknown) {
     error.value = err instanceof Error ? err.message : '加载订单失败'
   } finally {
@@ -111,23 +127,11 @@ async function updateStatus(newStatus: OrderStatusValue) {
 
 async function handleEdit() {
   if (!order.value) return
-  const endedStatuses: OrderStatusValue[] = [OrderStatus.SETTLED, OrderStatus.CANCELLED]
+  const endedStatuses: OrderStatusValue[] = [OrderStatus.COMPLETED, OrderStatus.SETTLED]
 
   if (endedStatuses.includes(order.value.status)) {
-    try {
-      const ts = await TableStatusAPI.getTableStatus(order.value.tableNo)
-      if (ts?.status === 'idle') {
-        const ok = await globalConfirm.confirm({
-          title: '订单已清台',
-          description: '此订单已清台，不应该再次编辑！',
-          confirmText: '继续编辑',
-          cancelText: '取消',
-        })
-        if (!ok) return
-      }
-    } catch {
-      // 查询失败时默认允许编辑
-    }
+    toast.error('已结账/已清台订单不可编辑')
+    return
   }
 
   router.push({ name: 'editOrder', params: { orderId: order.value.id } })
@@ -286,7 +290,12 @@ async function clearTable() {
             {{ btConnecting ? '连接中...' : (connectedPrinter?.server.connected ? '🖨️ 蓝牙打印' : '📡 蓝牙打印') }}
           </button>
           <button
-            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm active:scale-[0.98] transition-transform"
+            :class="[
+              'px-4 py-2 rounded-lg text-sm font-medium shadow-sm active:scale-[0.98] transition-transform',
+              order && (order.status === OrderStatus.COMPLETED || order.status === OrderStatus.SETTLED)
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-blue-600 text-white hover:bg-blue-700',
+            ]"
             @click="handleEdit"
           >
             编辑订单
@@ -355,6 +364,13 @@ async function clearTable() {
                 <div class="flex items-center gap-2">
                   <div class="text-sm font-medium text-gray-800">{{ item.name }}</div>
                   <span
+                    v-if="dishMap.get(item.dishId)?.soldOut"
+                    class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-600"
+                  >
+                    已沽清
+                  </span>
+                  <span
+                    v-else
                     class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium"
                     :class="{
                       'bg-amber-50 text-amber-700': (item.status || 'pending') === 'pending',
@@ -471,7 +487,7 @@ async function clearTable() {
                 class="w-full px-3 py-2 rounded-lg text-sm font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 active:scale-[0.98] transition-transform disabled:opacity-50"
                 @click="updateStatus(OrderStatus.CANCELLED)"
               >
-                取消订单
+                取消
               </button>
               <button
                 :disabled="processing"

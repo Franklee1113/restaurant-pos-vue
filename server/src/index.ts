@@ -5,6 +5,7 @@ import rateLimit from '@fastify/rate-limit'
 import { config } from './config'
 import { authenticateServiceAccount, checkPocketBaseHealth } from './plugins/pocketbase'
 import errorHandlerPlugin from './plugins/error-handler'
+import { startSoldOutResetJob } from './jobs/resetSoldOut'
 
 // 导入路由
 import publicOrderRoutes from './routes/public-orders'
@@ -82,6 +83,10 @@ async function main() {
     app.log.info(`🚀 公共API服务已启动: http://${config.HOST}:${config.PORT}`)
     app.log.info(`📋 环境: ${config.NODE_ENV}`)
     app.log.info(`🔗 PocketBase: ${config.PB_URL}`)
+
+    // 启动沽清自动重置定时任务
+    startSoldOutResetJob()
+    app.log.info('⏰ 沽清自动重置定时任务已启动（每日 04:00）')
   } catch (err) {
     console.error('❌ 服务启动失败:', err)
     process.exit(1)

@@ -5,6 +5,8 @@
  * 注意：Web Bluetooth 需要 HTTPS + 用户手势触发
  */
 
+/// <reference path="../types/web-bluetooth.d.ts" />
+
 import type { BluetoothPrintOrder } from './escpos'
 import { generateEscPosBill } from './escpos'
 export type { BluetoothPrintOrder }
@@ -71,7 +73,7 @@ export async function connectBluetoothPrinter(): Promise<BluetoothPrinterDevice>
 
     // 尝试主服务 UUID
     let characteristic: BluetoothRemoteGATTCharacteristic | null = null
-    let service: BluetoothRemoteGATTService | null = null
+    let service: any | null = null
 
     try {
       service = await server.getPrimaryService(PRINTER_SERVICE_UUID)

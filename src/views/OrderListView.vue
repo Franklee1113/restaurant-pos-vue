@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import * as XLSX from '@e965/xlsx'
-import { OrderAPI, PublicOrderAPI, TableStatusAPI, type Order, type TableStatus, escapePbString } from '@/api/pocketbase'
+import { OrderAPI, DishAPI, PublicOrderAPI, TableStatusAPI, type Order, type TableStatus, type Dish, escapePbString } from '@/api/pocketbase'
 import { useSettingsStore } from '@/stores/settings.store'
 import { OrderStatus, StatusLabels, getStatusButtons, type OrderStatusValue, StatusBadgeClass as statusBadgeClass } from '@/utils/orderStatus'
 import { MoneyCalculator } from '@/utils/security'
@@ -14,6 +14,7 @@ import { useDebounce } from '@/composables/useDebounce'
 import { useClearTable } from '@/composables/useClearTable'
 import EmptyState from '@/components/EmptyState.vue'
 import SkeletonBox from '@/components/SkeletonBox.vue'
+import SoldOutDrawer from '@/components/SoldOutDrawer.vue'
 
 const router = useRouter()
 const settingsStore = useSettingsStore()
@@ -24,6 +25,10 @@ const tableStatuses = ref<TableStatus[]>([])
 const loading = ref(false)
 const processing = ref(false)
 const searchKeyword = ref('')
+
+// ── 沽清功能相关 ──
+const allDishes = ref<Dish[]>([])
+const soldOutDrawerOpen = ref(false)
 
 const { checkCanClearTable, executeClearTable } = useClearTable()
 let lastOrderIds = ''
@@ -71,6 +76,44 @@ const pendingTableNumbers = computed(() => {
 function getLocalDateKey(dateStr: string): string {
   const d = new Date(dateStr)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+const soldOutCount = computed(() => allDishes.value.filter((d) => d.soldOut).length)
+
+async function handleToggleSoldOut(id: string, soldOut: boolean) {
+  const idx = allDishes.value.findIndex((d) => d.id === id)
+  if (idx === -1) return
+  const dish = allDishes.value[idx]
+  if (!dish) return
+  const original = { soldOut: dish.soldOut, soldOutNote: dish.soldOutNote, soldOutAt: dish.soldOutAt }
+
+  // 乐观更新
+  allDishes.value[idx] = { ...dish, soldOut, soldOutAt: soldOut ? new Date().toISOString() : undefined, soldOutNote: soldOut ? dish.soldOutNote : '' } as Dish
+
+  try {
+    await DishAPI.toggleSoldOut(id, soldOut)
+    toast.success(`"${dish.name}" 已${soldOut ? '标记沽清' : '恢复售卖'}`)
+  } catch (err) {
+    allDishes.value[idx] = { ...dish, ...original } as Dish
+    toast.error('操作失败: ' + (err instanceof Error ? err.message : '未知错误'))
+  }
+}
+
+async function handleResetAllSoldOut() {
+  const soldOutDishes = allDishes.value.filter((d) => d.soldOut)
+  if (soldOutDishes.length === 0) {
+    toast.info('当前没有沽清菜品')
+    return
+  }
+  try {
+    await Promise.all(soldOutDishes.map((d) => DishAPI.toggleSoldOut(d.id, false)))
+    allDishes.value = allDishes.value.map((d) =>
+      d.soldOut ? { ...d, soldOut: false, soldOutNote: '', soldOutAt: undefined } : d,
+    )
+    toast.success(`已恢复 ${soldOutDishes.length} 道菜品`)
+  } catch (err) {
+    toast.error('批量恢复失败: ' + (err instanceof Error ? err.message : '未知错误'))
+  }
 }
 
 const stats = computed(() => {
@@ -163,7 +206,7 @@ const { start: startAutoRefresh } = useAutoRefresh(silentRefresh, { interval: 30
 
 function playNotificationSound() {
   try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
     if (!AudioCtx) return
     const ctx = new AudioCtx()
     const osc = ctx.createOscillator()
@@ -182,8 +225,18 @@ function playNotificationSound() {
   }
 }
 
+async function fetchAllDishes() {
+  try {
+    const res = await DishAPI.getDishes()
+    allDishes.value = res.items
+  } catch {
+    // 失败静默，不影响主流程
+  }
+}
+
 onMounted(() => {
   fetchOrders()
+  fetchAllDishes()
   settingsStore.fetchSettings()
   startAutoRefresh()
 })
@@ -221,17 +274,11 @@ function viewOrder(order: Order) {
 }
 
 async function editOrder(order: Order) {
-  const endedStatuses: OrderStatusValue[] = [OrderStatus.COMPLETED, OrderStatus.SETTLED, OrderStatus.CANCELLED]
-  const ts = tableStatusMap.value.get(order.tableNo)
+  const endedStatuses: OrderStatusValue[] = [OrderStatus.COMPLETED, OrderStatus.SETTLED]
 
-  if (endedStatuses.includes(order.status) && ts?.status === 'idle') {
-    const ok = await globalConfirm.confirm({
-      title: '订单已清台',
-      description: '此订单已清台，不应该再次编辑！',
-      confirmText: '继续编辑',
-      cancelText: '取消',
-    })
-    if (!ok) return
+  if (endedStatuses.includes(order.status)) {
+    toast.error('已结账/已清台订单不可编辑')
+    return
   }
 
   router.push({ name: 'editOrder', params: { orderId: order.id } })
@@ -382,6 +429,13 @@ function exportExcel() {
           @click="exportExcel"
         >
           导出 Excel
+        </button>
+        <button
+          class="px-3 py-2 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg text-sm font-medium hover:bg-amber-100 active:scale-[0.98] transition-transform"
+          @click="soldOutDrawerOpen = true"
+        >
+          📋 今日沽清
+          <span v-if="soldOutCount > 0" class="ml-1 text-xs bg-amber-200 px-1.5 py-0.5 rounded-full">{{ soldOutCount }}</span>
         </button>
         <button
           class="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 shadow-sm active:scale-[0.98] transition-transform"
@@ -596,7 +650,17 @@ function exportExcel() {
             <td class="px-3 py-3 text-sm">
               <div class="flex flex-wrap items-center gap-1">
                 <button class="px-2 py-1 text-[11px] font-medium bg-white text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 active:scale-[0.98] transition-transform" @click="viewOrder(order)">查看</button>
-                <button class="px-2 py-1 text-[11px] font-medium bg-white text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 active:scale-[0.98] transition-transform" @click="editOrder(order)">编辑</button>
+                <button
+                  :class="[
+                    'px-2 py-1 text-[11px] font-medium rounded-md active:scale-[0.98] transition-transform',
+                    order.status === OrderStatus.COMPLETED || order.status === OrderStatus.SETTLED
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50',
+                  ]"
+                  @click="editOrder(order)"
+                >
+                  编辑
+                </button>
                 <button
                   v-for="btn in getActionButtons(order)"
                   :key="btn.status"
@@ -694,7 +758,17 @@ function exportExcel() {
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <button class="px-3 py-1.5 text-xs font-medium bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 active:scale-[0.98] transition-transform" @click="viewOrder(order)">查看</button>
-          <button class="px-3 py-1.5 text-xs font-medium bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 active:scale-[0.98] transition-transform" @click="editOrder(order)">编辑</button>
+          <button
+            :class="[
+              'px-3 py-1.5 text-xs font-medium rounded-lg active:scale-[0.98] transition-transform',
+              order.status === OrderStatus.COMPLETED || order.status === OrderStatus.SETTLED
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50',
+            ]"
+            @click="editOrder(order)"
+          >
+            编辑
+          </button>
           <button
             v-for="btn in getActionButtons(order)"
             :key="btn.status"
@@ -742,5 +816,14 @@ function exportExcel() {
         下一页
       </button>
     </div>
+
+    <!-- Sold Out Drawer -->
+    <SoldOutDrawer
+      :open="soldOutDrawerOpen"
+      :dishes="allDishes"
+      @close="soldOutDrawerOpen = false"
+      @toggle="handleToggleSoldOut"
+      @reset-all="handleResetAllSoldOut"
+    />
   </div>
 </template>

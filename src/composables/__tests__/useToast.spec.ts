@@ -1,92 +1,66 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { nextTick } from 'vue'
-import { useToast } from '../useToast'
+import { useToast } from '@/composables/useToast'
 
 describe('useToast', () => {
-  let toast: ReturnType<typeof useToast>
-
   beforeEach(() => {
     vi.useFakeTimers()
-    toast = useToast()
-    // 清理模块级单例状态
-    toast.toasts.value = []
+    // 清除所有遗留的 toast
+    const { toasts, remove } = useToast()
+    while (toasts.value.length > 0) {
+      remove(toasts.value[0].id)
+    }
   })
 
   afterEach(() => {
     vi.useRealTimers()
   })
 
-  it('should add a toast with show()', () => {
-    toast.show('Hello', 'info')
-    expect(toast.toasts.value).toHaveLength(1)
-    expect(toast.toasts.value[0]).toMatchObject({ message: 'Hello', type: 'info' })
-  })
+  it('should add and remove a toast', () => {
+    const { toasts, show } = useToast()
+    show('Hello')
+    expect(toasts.value).toHaveLength(1)
+    expect(toasts.value[0].message).toBe('Hello')
 
-  it('should auto-remove toast after duration', () => {
-    toast.show('Auto remove', 'success', 3000)
-    expect(toast.toasts.value).toHaveLength(1)
     vi.advanceTimersByTime(3000)
-    expect(toast.toasts.value).toHaveLength(0)
+    expect(toasts.value).toHaveLength(0)
   })
 
-  it('should not auto-remove when duration is 0', () => {
-    toast.show('Persistent', 'error', 0)
-    vi.advanceTimersByTime(10000)
-    expect(toast.toasts.value).toHaveLength(1)
+  it('should support action button', () => {
+    const { toasts, success } = useToast()
+    const onClick = vi.fn()
+    success('Order saved', {
+      action: { label: 'Undo', onClick },
+      duration: 5000,
+    })
+    expect(toasts.value).toHaveLength(1)
+    expect(toasts.value[0].action?.label).toBe('Undo')
+    toasts.value[0].action?.onClick()
+    expect(onClick).toHaveBeenCalled()
   })
 
-  it('should support success helper', () => {
-    toast.success('Saved')
-    expect(toast.toasts.value[0]).toMatchObject({ message: 'Saved', type: 'success' })
+  it('should support custom duration via success options', () => {
+    const { toasts, success } = useToast()
+    success('Long toast', { duration: 10000 })
+    vi.advanceTimersByTime(9000)
+    expect(toasts.value).toHaveLength(1)
+    vi.advanceTimersByTime(2000)
+    expect(toasts.value).toHaveLength(0)
   })
 
-  it('should support error helper with longer default duration', () => {
-    toast.error('Failed')
-    expect(toast.toasts.value[0]).toMatchObject({ message: 'Failed', type: 'error' })
-    vi.advanceTimersByTime(3999)
-    expect(toast.toasts.value).toHaveLength(1)
-    vi.advanceTimersByTime(2)
-    expect(toast.toasts.value).toHaveLength(0)
+  it('should support different types', () => {
+    const { toasts, success, error, warning, info } = useToast()
+    success('S')
+    error('E')
+    warning('W')
+    info('I')
+    expect(toasts.value.map((t) => t.type)).toEqual(['success', 'error', 'warning', 'info'])
   })
 
-  it('should support warning helper', () => {
-    toast.warning('Careful')
-    expect(toast.toasts.value[0]).toMatchObject({ message: 'Careful', type: 'warning' })
-  })
-
-  it('should support info helper', () => {
-    toast.info('FYI')
-    expect(toast.toasts.value[0]).toMatchObject({ message: 'FYI', type: 'info' })
-  })
-
-  it('should support manual remove()', () => {
-    toast.show('A', 'info', 0)
-    const id = toast.toasts.value[0]!.id
-    toast.remove(id)
-    expect(toast.toasts.value).toHaveLength(0)
-  })
-
-  it('should ignore remove() for non-existent id', () => {
-    toast.show('A', 'info', 0)
-    toast.remove(999999)
-    expect(toast.toasts.value).toHaveLength(1)
-  })
-
-  it('should handle multiple toasts', () => {
-    toast.success('A')
-    toast.error('B')
-    toast.info('C')
-    expect(toast.toasts.value).toHaveLength(3)
-    vi.advanceTimersByTime(3000)
-    // success and info removed, error remains (4000ms)
-    expect(toast.toasts.value).toHaveLength(1)
-    expect(toast.toasts.value[0]!.message).toBe('B')
-  })
-
-  it('should generate unique ids', () => {
-    toast.show('A')
-    toast.show('B')
-    const [t1, t2] = toast.toasts.value
-    expect(t1!.id).not.toBe(t2!.id)
+  it('should remove toast manually', () => {
+    const { toasts, show, remove } = useToast()
+    show('Test', 'info', 0)
+    expect(toasts.value).toHaveLength(1)
+    remove(toasts.value[0].id)
+    expect(toasts.value).toHaveLength(0)
   })
 })

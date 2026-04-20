@@ -12,8 +12,9 @@ import {
 describe('OrderStatus', () => {
   it('状态标签应该正确映射', () => {
     expect(StatusLabels[OrderStatus.PENDING]).toBe('待确认')
-    expect(StatusLabels[OrderStatus.COMPLETED]).toBe('上菜完成')
-    expect(StatusLabels[OrderStatus.SETTLED]).toBe('已结账')
+    expect(StatusLabels[OrderStatus.COMPLETED]).toBe('已结账')
+    expect(StatusLabels[OrderStatus.DINING]).toBe('用餐中')
+    expect(StatusLabels[OrderStatus.SETTLED]).toBe('已清台')
   })
 
   it('应该允许合法的状态流转', () => {
@@ -74,9 +75,10 @@ describe('OrderStatus', () => {
     expect(getAllowedNextStatuses(OrderStatus.CANCELLED)).toEqual([])
   })
 
-  it('SERVING 只能流转到 COMPLETED', () => {
-    expect(getAllowedNextStatuses(OrderStatus.SERVING)).toEqual([OrderStatus.COMPLETED])
-    expect(canTransition(OrderStatus.SERVING, OrderStatus.COMPLETED)).toBe(true)
-    expect(canTransition(OrderStatus.SERVING, OrderStatus.CANCELLED)).toBe(false)
+  it('SERVING 只能流转到 DINING 和 CANCELLED', () => {
+    expect(getAllowedNextStatuses(OrderStatus.SERVING)).toEqual([OrderStatus.DINING, OrderStatus.CANCELLED])
+    expect(canTransition(OrderStatus.SERVING, OrderStatus.DINING)).toBe(true)
+    expect(canTransition(OrderStatus.SERVING, OrderStatus.CANCELLED)).toBe(true)
+    expect(canTransition(OrderStatus.SERVING, OrderStatus.COMPLETED)).toBe(false)
   })
 })

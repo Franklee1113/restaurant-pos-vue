@@ -59,6 +59,18 @@ cd "$PROJECT_DIR"
 
 log_info "========== 开始部署 (版本: $VERSION) =========="
 
+# Step 0: 预检 - Nginx root 一致性检查
+log_info "Step 0/7: 预检 Nginx root 一致性..."
+NGINX_CONFIG_ROOT=$(grep -E '^\s*root\s+' /etc/nginx/sites-available/restaurant-pos 2>/dev/null | awk '{print $2}' | tr -d ';')
+if [ "$NGINX_CONFIG_ROOT" != "$NGINX_ROOT" ]; then
+  log_error "Nginx root 不一致！"
+  log_error "  Nginx 配置: $NGINX_CONFIG_ROOT"
+  log_error "  deploy.sh 配置: $NGINX_ROOT"
+  log_error "  请同步两者后再部署，否则部署的代码不会被实际服务！"
+  exit 1
+fi
+log_info "Nginx root 一致性检查通过: $NGINX_CONFIG_ROOT"
+
 # Step 1: 构建项目
 log_info "Step 1/6: 执行构建..."
 npm run build
@@ -107,15 +119,38 @@ fi
 log_info "PocketBase 运行正常"
 
 # Step 5: 重启 Nginx
-log_info "Step 5/6: 重启 Nginx..."
+log_info "Step 5/7: 重启 Nginx..."
 sudo systemctl restart nginx || { log_error "Nginx 重启失败"; rollback; }
 if ! sudo systemctl is-active --quiet nginx; then
   log_error "Nginx 启动失败！"
   rollback
 fi
 
-# Step 6: 健康检查
-log_info "Step 6/6: 执行健康检查..."
+# Step 6: 部署验证 - 确认生产环境返回的是新构建的代码
+log_info "Step 6/7: 验证前端部署是否生效..."
+sleep 2
+
+# 获取本地构建的 index.js 文件名
+LOCAL_INDEX_JS=$(grep -o 'src="/assets/index-[^"]*\.js"' "$PROJECT_DIR/dist/index.html" | sed 's/src=\"//;s/\"//')
+# 获取生产环境返回的 index.js 文件名
+REMOTE_INDEX_JS=$(curl -s http://127.0.0.1/ | grep -o 'src="/assets/index-[^"]*\.js"' | sed 's/src=\"//;s/\"//')
+
+if [ -z "$REMOTE_INDEX_JS" ]; then
+  log_error "无法从生产环境获取 index.js 文件名，部署验证失败！"
+  rollback
+fi
+
+if [ "$LOCAL_INDEX_JS" != "$REMOTE_INDEX_JS" ]; then
+  log_error "前端部署验证失败！"
+  log_error "  本地构建: $LOCAL_INDEX_JS"
+  log_error "  生产环境: $REMOTE_INDEX_JS"
+  log_error "  可能原因：Nginx root 指向了错误的目录、CDN 缓存、或 Service Worker 拦截"
+  rollback
+fi
+log_info "前端部署验证通过: $REMOTE_INDEX_JS"
+
+# Step 7: 健康检查
+log_info "Step 7/7: 执行健康检查..."
 sleep 2
 
 NGINX_OK=false
@@ -132,7 +167,7 @@ fi
 
 if [ "$NGINX_OK" = true ] && [ "$API_OK" = true ]; then
   log_info "✅ 部署成功！版本: $VERSION"
-  log_info "Nginx: OK, API: OK (HTTP $HTTP_CODE)"
+  log_info "Nginx: OK, API: OK (HTTP $HTTP_CODE), 前端: OK ($REMOTE_INDEX_JS)"
   log_info "如需回滚: sudo rm -rf $NGINX_ROOT && sudo cp -r $BACKUP_DIR/pre-$TIMESTAMP $NGINX_ROOT && sudo systemctl restart nginx"
   exit 0
 else

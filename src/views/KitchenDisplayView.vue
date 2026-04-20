@@ -117,7 +117,7 @@ async function finishCooking(order: Order, item: OrderItem) {
 
 function playAlertSound() {
   try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
     if (!AudioCtx) return
     const ctx = new AudioCtx()
     const playTone = (freq: number, start: number, duration: number) => {

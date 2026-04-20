@@ -165,7 +165,7 @@ export function getStatusButtons(status: OrderStatusValue): Array<{
 
     return {
       status: nextStatus,
-      label: StatusLabels[nextStatus],
+      label: nextStatus === OrderStatus.CANCELLED ? '取消' : StatusLabels[nextStatus],
       type,
     }
   })

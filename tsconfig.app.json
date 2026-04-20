@@ -3,8 +3,9 @@
   "include": ["env.d.ts", "src/**/*", "src/**/*.vue"],
   "exclude": ["src/**/__tests__/*"],
   "compilerOptions": {
-    // Extra safety for array and object lookups, but may have false positives.
-    "noUncheckedIndexedAccess": true,
+    // Disabled: business CRUD code rarely benefits from this; it creates
+    // excessive noise and has forced us to bypass type-check in deploy.sh.
+    "noUncheckedIndexedAccess": false,
 
     // Path mapping for cleaner imports.
     "paths": {

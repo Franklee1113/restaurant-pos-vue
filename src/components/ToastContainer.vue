@@ -36,8 +36,15 @@ const iconMap = {
           :class="bgMap[toast.type]"
         >
           <span class="font-bold text-lg leading-none mt-0.5">{{ iconMap[toast.type] }}</span>
-          <div class="flex-1 text-sm font-medium">{{ toast.message }}</div>
-          <button class="text-white/80 hover:text-white text-lg leading-none" @click="remove(toast.id)">×</button>
+          <div class="flex-1 text-sm font-medium min-w-0">{{ toast.message }}</div>
+          <button
+            v-if="toast.action"
+            class="ml-1 px-2 py-1 bg-white/20 rounded text-xs hover:bg-white/30 transition-colors shrink-0"
+            @click="toast.action.onClick()"
+          >
+            {{ toast.action.label }}
+          </button>
+          <button class="text-white/80 hover:text-white text-lg leading-none shrink-0" @click="remove(toast.id)">×</button>
         </div>
       </TransitionGroup>
     </div>

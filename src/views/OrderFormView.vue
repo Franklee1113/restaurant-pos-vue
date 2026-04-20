@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { OrderAPI, DishAPI, type Order, type Dish, type OrderItem, type CreateOrderPayload } from '@/api/pocketbase'
+import { OrderAPI, DishAPI, type Order, type Dish, type OrderItem, type CreateOrderPayload, subscribeToDishes } from '@/api/pocketbase'
 import { useSettingsStore } from '@/stores/settings.store'
 import { OrderStatus, generateOrderNo } from '@/utils/orderStatus'
 import { MoneyCalculator, Validators } from '@/utils/security'
@@ -11,6 +11,7 @@ import CutleryConfigPanel from '@/components/CutleryConfigPanel.vue'
 import CartPanel from '@/components/CartPanel.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import SkeletonBox from '@/components/SkeletonBox.vue'
+import DishActionSheet from '@/components/DishActionSheet.vue'
 import { DISH_RULES, HOT_DISHES } from '@/config/dish.config'
 
 const route = useRoute()
@@ -36,6 +37,14 @@ const editingRemarkId = ref<string | null>(null)
 const cartBump = ref(false)
 const submitting = ref(false)
 let bumpTimer: ReturnType<typeof setTimeout> | null = null
+
+// ── 沽清功能相关状态 ──
+const actionSheetOpen = ref(false)
+const selectedDish = ref<Dish | null>(null)
+const longPressActive = ref<string | null>(null)
+let longPressTimer: ReturnType<typeof setTimeout> | null = null
+const LONG_PRESS_DURATION = 600
+let dishesUnsubscribe: (() => void) | null = null
 
 const tablewareDish = computed(() => dishes.value.find((d) => d.category === '餐具'))
 const cutleryType = ref<CutleryTypeValue>(CutleryType.CHARGED)
@@ -87,6 +96,7 @@ const orderSummary = computed(() => {
 
 onMounted(() => {
   loadData()
+  setupDishesRealtime()
 })
 
 onUnmounted(() => {
@@ -94,7 +104,146 @@ onUnmounted(() => {
     clearTimeout(bumpTimer)
     bumpTimer = null
   }
+  if (longPressTimer) {
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+  }
+  dishesUnsubscribe?.()
 })
+
+// ── 沽清功能：实时同步 ──
+async function setupDishesRealtime() {
+  try {
+    dishesUnsubscribe = await subscribeToDishes((updatedDish) => {
+      const idx = dishes.value.findIndex((d) => d.id === updatedDish.id)
+      if (idx !== -1) {
+        dishes.value[idx] = { ...dishes.value[idx], ...updatedDish }
+      }
+      // 如果购物车中有这道菜且被标记为沽清，弹出提示
+      const cartItem = cart.value.find((c) => c.dishId === updatedDish.id)
+      if (cartItem && updatedDish.soldOut) {
+        toast.warning(`"${updatedDish.name}" 已沽清，请从购物车移除`)
+      }
+    })
+  } catch {
+    // SSE 不可用，降级到 visibilitychange 刷新
+  }
+}
+
+// ── 沽清功能：长按/右键交互 ──
+function handleTouchStart(dish: Dish) {
+  if (dish.soldOut) return
+  longPressActive.value = dish.id
+  longPressTimer = setTimeout(() => {
+    longPressActive.value = null
+    openDishMenu(dish)
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(50)
+    }
+    longPressTimer = null
+  }, LONG_PRESS_DURATION)
+}
+
+function handleTouchEnd() {
+  longPressActive.value = null
+  if (longPressTimer) {
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+  }
+}
+
+function handleTouchMove() {
+  longPressActive.value = null
+  if (longPressTimer) {
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+  }
+}
+
+function handleContextMenu(dish: Dish, event: MouseEvent) {
+  event.preventDefault()
+  if (!dish.soldOut) openDishMenu(dish)
+}
+
+function openDishMenu(dish: Dish) {
+  selectedDish.value = dish
+  actionSheetOpen.value = true
+}
+
+async function markDishSoldOut(dish: Dish, note?: string) {
+  const idx = dishes.value.findIndex((d) => d.id === dish.id)
+  if (idx === -1) return
+
+  const target = dishes.value[idx]
+  if (!target) return
+
+  // 乐观更新（只修改目标字段，不替换整个对象）
+  dishes.value[idx] = {
+    ...target,
+    soldOut: true,
+    soldOutAt: new Date().toISOString(),
+    soldOutNote: note || '',
+  }
+
+  actionSheetOpen.value = false
+
+  try {
+    await DishAPI.toggleSoldOut(dish.id, true, note)
+    toast.success(`"${dish.name}" 已标记沽清`, {
+      duration: 10_000,
+      action: {
+        label: '撤销',
+        onClick: async () => {
+          await markDishAvailable(dish)
+        },
+      },
+    })
+  } catch (err) {
+    // 失败回滚（只恢复 soldOut 字段）
+    dishes.value[idx] = {
+      ...target,
+      soldOut: false,
+      soldOutAt: undefined,
+      soldOutNote: '',
+    } as Dish
+    toast.error('标记失败: ' + (err instanceof Error ? err.message : '未知错误'))
+  }
+}
+
+async function markDishAvailable(dish: Dish) {
+  const idx = dishes.value.findIndex((d) => d.id === dish.id)
+  if (idx === -1) return
+
+  const target = dishes.value[idx]
+  if (!target) return
+
+  const originalSoldOut = target.soldOut
+  const originalNote = target.soldOutNote
+  const originalAt = target.soldOutAt
+
+  dishes.value[idx] = {
+    ...target,
+    soldOut: false,
+    soldOutAt: undefined,
+    soldOutNote: '',
+  }
+
+  actionSheetOpen.value = false
+
+  try {
+    await DishAPI.toggleSoldOut(dish.id, false)
+    toast.success(`"${dish.name}" 已恢复售卖`)
+  } catch (err) {
+    // 失败回滚
+    dishes.value[idx] = {
+      ...target,
+      soldOut: originalSoldOut,
+      soldOutAt: originalAt,
+      soldOutNote: originalNote,
+    } as Dish
+    toast.error('恢复失败: ' + (err instanceof Error ? err.message : '未知错误'))
+  }
+}
 
 async function loadData() {
   loading.value = true
@@ -142,6 +291,11 @@ function triggerCartBump() {
 }
 
 function addToCart(dish: Dish) {
+  // P1-3: 拦截已沽清菜品
+  if (dish.soldOut) {
+    toast.warning(`"${dish.name}" 已沽清，无法添加`)
+    return
+  }
   const existing = cart.value.find((i) => i.dishId === dish.id)
   if (existing) {
     existing.quantity = Math.round((existing.quantity + 1) * 10) / 10
@@ -156,6 +310,11 @@ function addToCart(dish: Dish) {
     if (!existingAddOn) {
       const addOn = dishes.value.find((d) => d.name === rule.add)
       if (addOn) {
+        // 自动添加的配菜如果沽清，也要拦截
+        if (addOn.soldOut) {
+          toast.warning(`配菜 "${addOn.name}" 已沽清，无法自动添加`)
+          return
+        }
         cart.value.push({ dishId: addOn.id, name: addOn.name, price: addOn.price, quantity: rule.qty, remark: '', isAuto: true })
         toast.info(`已自动添加 ${rule.add} ${rule.qty}份`)
         triggerCartBump()
@@ -215,6 +374,16 @@ const formErrors = ref<Record<string, string>>({})
 async function submit() {
   if (submitting.value) return
   formErrors.value = {}
+
+  // 购物车沽清校验
+  const soldOutItems = cart.value.filter((item) => {
+    const dish = dishes.value.find((d) => d.id === item.dishId)
+    return dish?.soldOut
+  })
+  if (soldOutItems.length > 0) {
+    toast.error(`以下菜品已沽清，请移除后重试：${soldOutItems.map((i) => i.name).join('、')}`)
+    return
+  }
 
   const { discount } = MoneyCalculator.calculateWithDiscount(
     cart.value,
@@ -418,20 +587,40 @@ async function submit() {
             <div
               v-for="dish in filteredDishes"
               :key="dish.id"
-              class="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-transparent hover:border-blue-300 transition-colors"
+              :class="[
+                'flex items-center justify-between p-3 rounded-lg border transition-all select-none',
+                dish.soldOut
+                  ? 'bg-gray-100 opacity-60 border-gray-200'
+                  : 'bg-gray-50 border-transparent hover:border-blue-300'
+              ]"
+              style="-webkit-touch-callout: none; -webkit-user-select: none; user-select: none;"
+              @contextmenu.prevent="handleContextMenu(dish, $event)"
+              @touchstart.passive="handleTouchStart(dish)"
+              @touchend.passive="handleTouchEnd"
+              @touchmove.passive="handleTouchMove"
             >
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1">
                   <span v-if="HOT_DISHES.has(dish.name)" class="text-xs">🔥</span>
-                  <div class="font-medium text-gray-800 text-sm truncate">{{ dish.name }}</div>
+                  <div class="font-medium text-sm truncate" :class="dish.soldOut ? 'text-gray-400' : 'text-gray-800'">{{ dish.name }}</div>
+                  <span v-if="dish.soldOut" class="px-1.5 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full shrink-0">已沽清</span>
                 </div>
-                <div class="text-xs text-gray-500 truncate">{{ dish.description || dish.category }}</div>
+                <div class="text-xs truncate" :class="dish.soldOut ? 'text-gray-400' : 'text-gray-500'">
+                  {{ dish.soldOut ? (dish.soldOutNote || '今日无货') : (dish.description || dish.category) }}
+                </div>
               </div>
               <div class="flex items-center gap-2">
-                <div class="text-red-500 font-bold text-sm">{{ MoneyCalculator.format(dish.price) }}</div>
-                <button class="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 active:scale-[0.98] transition-transform" @click="addToCart(dish)">
+                <div class="font-bold text-sm" :class="dish.soldOut ? 'text-gray-400 line-through' : 'text-red-500'">
+                  {{ dish.soldOut ? '—' : MoneyCalculator.format(dish.price) }}
+                </div>
+                <button
+                  v-if="!dish.soldOut"
+                  class="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 active:scale-[0.98] transition-transform"
+                  @click.stop="addToCart(dish)"
+                >
                   + 添加
                 </button>
+                <div v-else class="px-3 py-1.5 bg-gray-200 text-gray-500 text-xs font-medium rounded-lg">已沽清</div>
               </div>
             </div>
           </div>
@@ -441,17 +630,43 @@ async function submit() {
             <div
               v-for="dish in filteredDishes"
               :key="dish.id"
-              class="bg-gray-50 rounded-xl p-3 text-center hover:shadow-md hover:-translate-y-0.5 transition-all border border-transparent hover:border-blue-300"
+              :class="[
+                'relative rounded-xl p-3 text-center border transition-all select-none',
+                longPressActive === dish.id ? 'scale-95' : '',
+                dish.soldOut
+                  ? 'bg-gray-100 opacity-60 border-gray-200 cursor-not-allowed'
+                  : 'bg-gray-50 hover:shadow-md hover:-translate-y-0.5 border-transparent hover:border-blue-300'
+              ]"
+              style="-webkit-touch-callout: none; -webkit-user-select: none; user-select: none;"
+              @contextmenu.prevent="handleContextMenu(dish, $event)"
+              @touchstart.passive="handleTouchStart(dish)"
+              @touchend.passive="handleTouchEnd"
+              @touchmove.passive="handleTouchMove"
             >
+              <!-- 已沽清标签 -->
+              <div v-if="dish.soldOut" class="absolute top-1 right-1 px-1.5 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full">
+                已沽清
+              </div>
+
               <div class="flex items-center justify-center gap-1 mb-1">
                 <span v-if="HOT_DISHES.has(dish.name)" class="text-xs">🔥</span>
-                <div class="font-semibold text-gray-800 text-sm truncate">{{ dish.name }}</div>
+                <div class="font-semibold text-sm truncate" :class="dish.soldOut ? 'text-gray-400' : 'text-gray-800'">{{ dish.name }}</div>
               </div>
-              <div class="text-xs text-gray-500 truncate mb-2">{{ dish.description || dish.category }}</div>
-              <div class="text-red-500 font-bold text-base mb-2">{{ MoneyCalculator.format(dish.price) }}</div>
-              <button class="w-full py-1.5 px-3 bg-blue-600 text-white text-xs font-medium rounded-full hover:bg-blue-700 active:scale-[0.98] transition-transform" @click="addToCart(dish)">
+              <div class="text-xs truncate mb-2" :class="dish.soldOut ? 'text-gray-400' : 'text-gray-500'">
+                {{ dish.soldOut ? (dish.soldOutNote || '今日无货') : (dish.description || dish.category) }}
+              </div>
+              <div class="font-bold text-base mb-2" :class="dish.soldOut ? 'text-gray-400 line-through' : 'text-red-500'">
+                {{ dish.soldOut ? '—' : MoneyCalculator.format(dish.price) }}
+              </div>
+
+              <button
+                v-if="!dish.soldOut"
+                class="w-full py-1.5 px-3 bg-blue-600 text-white text-xs font-medium rounded-full hover:bg-blue-700 active:scale-[0.98] transition-transform"
+                @click.stop="addToCart(dish)"
+              >
                 + 添加
               </button>
+              <div v-else class="w-full py-1.5 px-3 bg-gray-200 text-gray-500 text-xs font-medium rounded-full">已沽清</div>
             </div>
           </div>
         </template>
@@ -483,5 +698,14 @@ async function submit() {
         />
       </div>
     </div>
+
+    <!-- Dish Action Sheet -->
+    <DishActionSheet
+      :open="actionSheetOpen"
+      :dish="selectedDish"
+      @close="actionSheetOpen = false"
+      @mark-sold-out="(note?: string) => selectedDish && markDishSoldOut(selectedDish, note)"
+      @mark-available="selectedDish && markDishAvailable(selectedDish)"
+    />
   </div>
 </template>
