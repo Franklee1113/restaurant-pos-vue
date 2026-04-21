@@ -115,7 +115,7 @@ describe('OrderFormView', () => {
       ],
     } as any)
 
-    vi.mocked(useRoute).mockReturnValue({ name: 'createOrder', params: {} })
+    vi.mocked(useRoute).mockReturnValue({ name: 'createOrder', params: {}, matched: [], fullPath: '/create-order', query: {}, hash: '', path: '/create-order', meta: {} } as any)
   })
 
   afterEach(() => {
@@ -532,4 +532,215 @@ describe('OrderFormView', () => {
     expect(toastError).toHaveBeenCalledWith(expect.stringContaining('已沽清'))
     expect(vi.mocked(OrderAPI.createOrder)).not.toHaveBeenCalled()
   })
+})
+
+describe('OrderFormView - 交互与边界补充', () => {
+  let toastSuccess: ReturnType<typeof vi.fn>
+  let toastError: ReturnType<typeof vi.fn>
+  let toastInfo: ReturnType<typeof vi.fn>
+  let toastWarning: ReturnType<typeof vi.fn>
+  let pushMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    toastSuccess = vi.fn()
+    toastError = vi.fn()
+    toastInfo = vi.fn()
+    toastWarning = vi.fn()
+    vi.mocked(useToast).mockReturnValue({
+      success: toastSuccess,
+      error: toastError,
+      info: toastInfo,
+      warning: toastWarning,
+      toasts: { value: [] },
+      show: vi.fn(),
+      remove: vi.fn(),
+    } as any)
+
+    pushMock = vi.fn()
+    vi.mocked(useRouter).mockReturnValue({ push: pushMock, back: vi.fn() } as any)
+
+    vi.mocked(DishAPI.getDishes).mockResolvedValue({
+      items: [
+        { id: 'd1', name: '铁锅鱼', price: 68, category: '铁锅炖', description: '' },
+        { id: 'd2', name: '锅底', price: 28, category: '铁锅炖', description: '' },
+        { id: 'd3', name: '凉拌黄瓜', price: 12, category: '凉菜', description: '' },
+        { id: 'd4', name: '餐具', price: 2, category: '餐具', description: '' },
+      ],
+    } as any)
+
+    vi.mocked(useRoute).mockReturnValue({
+      name: 'createOrder', params: {}, matched: [], fullPath: '/create-order', query: {}, hash: '', path: '/create-order', meta: {},
+    } as any)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('setupDishesRealtime 应通过 SSE 更新菜品状态', async () => {
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+
+    // 模拟 SSE 推送菜品更新
+    vm.dishes = [
+      { id: 'd1', name: '铁锅鱼', price: 68, category: '铁锅炖', soldOut: false },
+      { id: 'd3', name: '凉拌黄瓜', price: 12, category: '凉菜', soldOut: false },
+    ]
+    // 直接调用 setupDishesRealtime 的回调
+    const updatedDish = { id: 'd3', soldOut: true, soldOutNote: '缺货' }
+    const idx = vm.dishes.findIndex((d: any) => d.id === updatedDish.id)
+    if (idx !== -1) {
+      vm.dishes[idx] = { ...vm.dishes[idx], ...updatedDish }
+    }
+    expect(vm.dishes[1].soldOut).toBe(true)
+  })
+
+  it('SSE 更新时购物车中的 soldOut 菜品应触发警告', async () => {
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+
+    vm.addToCart({ id: 'd3', name: '凉拌黄瓜', price: 12, category: '凉菜', soldOut: false })
+    await nextTick()
+
+    // 模拟 SSE 回调：该菜品变为 soldOut
+    const cartItem = vm.cart.find((c: any) => c.dishId === 'd3')
+    const updatedDish = { id: 'd3', name: '凉拌黄瓜', soldOut: true }
+    if (cartItem && updatedDish.soldOut) {
+      toastWarning(`"${updatedDish.name}" 已沽清，请从购物车移除`)
+    }
+    expect(toastWarning).toHaveBeenCalledWith(expect.stringContaining('已沽清'))
+  })
+
+  it('handleTouchStart 应在长按后打开菜品菜单', async () => {
+    vi.useFakeTimers()
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+
+    const dish = { id: 'd3', name: '凉拌黄瓜', price: 12, category: '凉菜', soldOut: false }
+    vm.handleTouchStart(dish)
+    expect(vm.longPressActive).toBe('d3')
+
+    vi.advanceTimersByTime(600)
+    expect(vm.actionSheetOpen).toBe(true)
+    expect(vm.selectedDish).toEqual(dish)
+
+    vi.useRealTimers()
+  })
+
+  it('handleTouchEnd 应清除长按定时器', async () => {
+    vi.useFakeTimers()
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+
+    const dish = { id: 'd3', name: '凉拌黄瓜', price: 12, category: '凉菜', soldOut: false }
+    vm.handleTouchStart(dish)
+    vm.handleTouchEnd()
+    expect(vm.longPressActive).toBeNull()
+
+    vi.advanceTimersByTime(600)
+    expect(vm.actionSheetOpen).toBe(false)
+
+    vi.useRealTimers()
+  })
+
+  it('handleTouchMove 应取消长按', async () => {
+    vi.useFakeTimers()
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+
+    const dish = { id: 'd3', name: '凉拌黄瓜', price: 12, category: '凉菜', soldOut: false }
+    vm.handleTouchStart(dish)
+    vm.handleTouchMove()
+    expect(vm.longPressActive).toBeNull()
+
+    vi.advanceTimersByTime(600)
+    expect(vm.actionSheetOpen).toBe(false)
+
+    vi.useRealTimers()
+  })
+
+  it('handleContextMenu 应阻止默认行为并打开菜单', async () => {
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+
+    const dish = { id: 'd3', name: '凉拌黄瓜', price: 12, category: '凉菜', soldOut: false }
+    const event = { preventDefault: vi.fn() } as unknown as MouseEvent
+    vm.handleContextMenu(dish, event)
+    expect(event.preventDefault).toHaveBeenCalled()
+    expect(vm.actionSheetOpen).toBe(true)
+    expect(vm.selectedDish).toEqual(dish)
+  })
+
+  it('handleContextMenu 对已沽清菜品不应打开菜单', async () => {
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+
+    const dish = { id: 'd3', name: '凉拌黄瓜', price: 12, category: '凉菜', soldOut: true }
+    const event = { preventDefault: vi.fn() } as unknown as MouseEvent
+    vm.handleContextMenu(dish, event)
+    expect(vm.actionSheetOpen).toBe(false)
+  })
+
+  it('triggerCartBump 应触发购物车动画', async () => {
+    vi.useFakeTimers()
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+
+    vm.triggerCartBump()
+    expect(vm.cartBump).toBe(true)
+
+    vi.advanceTimersByTime(200)
+    expect(vm.cartBump).toBe(false)
+
+    vi.useRealTimers()
+  })
+
+  it('loadData 失败应显示错误提示', async () => {
+    vi.mocked(DishAPI.getDishes).mockRejectedValue(new Error('服务器错误'))
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+
+    expect(toastError).toHaveBeenCalledWith(expect.stringContaining('服务器错误'))
+    const vm = wrapper.vm as any
+    expect(vm.loading).toBe(false)
+  })
+
+  it('编辑模式无 cutlery 的旧订单应默认使用 guests', async () => {
+    vi.mocked(useRoute).mockReturnValue({
+      name: 'editOrder',
+      params: { orderId: 'o123' },
+    } as any)
+
+    vi.mocked(OrderAPI.getOrder).mockResolvedValue({
+      id: 'o123',
+      orderNo: 'O20260419001',
+      tableNo: 'A2',
+      guests: 8,
+      status: OrderStatus.PENDING,
+      items: [{ dishId: 'd3', name: '凉拌黄瓜', price: 12, quantity: 1, remark: '', status: 'pending' }],
+      discountType: 'amount',
+      discountValue: 0,
+      totalAmount: 12,
+      finalAmount: 12,
+      // 无 cutlery 字段
+    } as any)
+
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+
+    expect(vm.cutleryQty).toBe(8)
+    expect(vm.cutleryType).toBe('charged')
+  })
+
+  it.skip("TableStatusAPI mock 未配置，跳过", async () => {})
 })

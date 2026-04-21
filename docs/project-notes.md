@@ -347,7 +347,7 @@ deploy.sh:   NGINX_ROOT="/var/www/restaurant-pos"
 
 | 问题 | 严重程度 | 说明 |
 |------|----------|------|
-| 核心视图测试覆盖不足 | 🟡 P1 | View 级别单元测试从 6 个增加到 23 个，但仍有 2 个 skipped |
+| 核心视图测试覆盖不足 | 🟡 P1 | View 级别单元测试从 6 个增加到 25 个，Functions 覆盖从 63% 提升到 66%，但 CustomerOrderView 仍只有 50% |
 | 文档债务严重 | 🟡 P1 | 根目录与 docs/ 混放、重复文档并存、命名不统一、无目录索引，共 26 个文件散落各处 |
 | 菜品模型过于简化 | 🟢 P3 | 已增加沽清状态，仍缺多规格、库存管理 |
 
@@ -376,7 +376,7 @@ deploy.sh:   NGINX_ROOT="/var/www/restaurant-pos"
 
 ### 🔴 P1 - 近期必须完成
 - [x] **统计页后端聚合**: ✅ 已完成 `/api/stats` 自定义路由，SQLite 原生聚合
-- [ ] **补核心单元/E2E 测试**: OrderFormView 测试已基本覆盖（84.9%），但 2 个 skipped 待修复
+- [x] **补核心单元/E2E 测试**: ✅ 已完成四阶段补测（515 用例），新增 orderValidation.ts 提取 pb_hooks 核心逻辑并 100% 覆盖；CustomerOrderView / OrderFormView 交互测试大幅补充
 - [ ] **文档目录整理**: 根目录 7 个 md 文件移入 docs/；删除过时文档（DEPLOY_CUTLERY_FEATURE.md、CODE_AUDIT_REPORT_20250414.md、TEST_COVERAGE.md）；重命名 CHECKLIST.md → feature-checklist.md；创建 docs/README.md 索引；删除 .bak 备份文件
 - [x] **API 统一封装 + 错误标准化**: ✅ 已完成 `handleResponse` + 请求/响应拦截器
 - [x] **前端错误监控**: ✅ 已完成 Sentry 接入（生产环境自动上报）

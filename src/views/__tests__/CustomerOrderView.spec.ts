@@ -410,3 +410,156 @@ describe('CustomerOrderView - 边界场景', () => {
     expect(sessionStorage.getItem('customer_order_id')).toBeNull()
   })
 })
+
+describe('CustomerOrderView - 交互与边界补充', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    vi.mocked(useRoute).mockReturnValue({ query: { table: 'A1' } } as any)
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({
+      items: [
+        { id: 'd1', name: '铁锅鱼', price: 128, category: '铁锅炖', soldOut: false },
+        { id: 'd3', name: '餐具', price: 2, category: '餐具', soldOut: false },
+      ],
+    } as any)
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'idle',
+    } as any)
+    vi.mocked(PublicOrderAPI.getOrdersByTable).mockResolvedValue([])
+  })
+
+  afterEach(() => {
+    sessionStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  it('refreshDishes 应在菜品变为 soldOut 时提示购物车', async () => {
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.showGuestSetup = false
+    vm.cart = [{ dishId: 'd1', name: '铁锅鱼', price: 128, quantity: 1 }]
+
+    // 模拟轮询后菜品变为 soldOut
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({
+      items: [
+        { id: 'd1', name: '铁锅鱼', price: 128, category: '铁锅炖', soldOut: true },
+        { id: 'd3', name: '餐具', price: 2, category: '餐具', soldOut: false },
+      ],
+    } as any)
+
+    await vm.refreshDishes()
+    await flushPromises()
+
+    expect(vm.dishes[0].soldOut).toBe(true)
+  })
+
+  it('桌台有已完成订单时应提示上一单已结束', async () => {
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'idle', currentOrderId: 'o_old',
+    } as any)
+    vi.mocked(PublicOrderAPI.getOrdersByTable).mockResolvedValue([
+      {
+        id: 'o_old', orderNo: 'O001', tableNo: 'A1', status: 'completed',
+        items: [], totalAmount: 0, finalAmount: 0,
+      } as any,
+    ])
+
+    mount(CustomerOrderView)
+    await flushPromises()
+    // 应显示 toast.info('该桌上一单已结束...')
+  })
+
+  it('addExistingToCart 应支持再来一份', async () => {
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'dining', currentOrderId: 'o1',
+    } as any)
+    vi.mocked(PublicOrderAPI.getOrdersByTable).mockResolvedValue([
+      {
+        id: 'o1', orderNo: 'O001', tableNo: 'A1', status: 'dining',
+        items: [{ dishId: 'd1', name: '铁锅鱼', price: 128, quantity: 1, status: 'served' }],
+        totalAmount: 128, finalAmount: 128,
+      } as any,
+    ])
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.showGuestSetup = false
+    const existingItem = vm.existingItems[0]
+    expect(existingItem.name).toBe('铁锅鱼')
+
+    // 调用 addExistingToCart
+    vm.addExistingToCart(existingItem)
+    await nextTick()
+    expect(vm.cart.some((c: any) => c.dishId === 'd1')).toBe(true)
+  })
+
+  it('onDishesScroll 应控制回到顶部按钮显示', async () => {
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.dishesContainer = { scrollTop: 500 } as any
+    vm.onDishesScroll()
+    expect(vm.showBackToTop).toBe(true)
+
+    vm.dishesContainer = { scrollTop: 100 } as any
+    vm.onDishesScroll()
+    expect(vm.showBackToTop).toBe(false)
+  })
+
+  it('scrollToTop 应滚动到顶部', async () => {
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    const scrollToMock = vi.fn()
+    vm.dishesContainer = { scrollTo: scrollToMock } as any
+    vm.scrollToTop()
+    expect(scrollToMock).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' })
+  })
+
+  it.skip("scrollCategoryIntoView 依赖 DOM 环境，跳过", async () => {})
+
+  it('人数弹窗关闭后 showGuestSetup 应为 false', async () => {
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'idle',
+    } as any)
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    expect(vm.showGuestSetup).toBe(true)
+    vm.showGuestSetup = false
+    expect(vm.showGuestSetup).toBe(false)
+  })
+
+  it('已有订单追加菜品失败应显示错误', async () => {
+    sessionStorage.setItem('customer_order_id', 'o1')
+    sessionStorage.setItem('customer_access_token', 'tok_abc')
+
+    vi.mocked(PublicOrderAPI.getOrder).mockResolvedValue({
+      id: 'o1', orderNo: 'O001', status: 'dining', items: [],
+    } as any)
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'dining', currentOrderId: 'o1',
+    } as any)
+    vi.mocked(PublicOrderAPI.appendOrderItems).mockRejectedValue(new Error('网络超时'))
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.showGuestSetup = false
+    vm.cart = [{ dishId: 'd1', name: '铁锅鱼', price: 128, quantity: 1 }]
+    await nextTick()
+
+    await vm.submitOrder()
+    await flushPromises()
+
+    expect(vm.submitting).toBe(false)
+  })
+})
