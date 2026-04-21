@@ -25,6 +25,7 @@ test.describe('登录页面', () => {
     await page.locator('input[type="password"]').fill('wrongpassword')
     await page.locator('button[type="submit"]').click()
 
-    await expect(page.locator('.text-red-600')).toContainText('失败')
+    // PocketBase 返回英文错误信息
+    await expect(page.locator('.text-red-600')).toContainText('Failed')
   })
 })

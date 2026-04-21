@@ -83,7 +83,7 @@
 ├── vite.config.ts                    # manualChunks 拆分 ECharts/XLSX
 ├── tsconfig.app.json
 ├── playwright.config.ts
-└── project-notes.md                  # 本文件
+└── docs/project-notes.md             # 本文件
 
 /var/www/restaurant-pos/              # 生产构建产物 (dist 部署目录)
 /opt/pocketbase/                      # PocketBase 服务 + pb_data/ + pb_migrations/
@@ -348,6 +348,7 @@ deploy.sh:   NGINX_ROOT="/var/www/restaurant-pos"
 | 问题 | 严重程度 | 说明 |
 |------|----------|------|
 | 核心视图测试覆盖不足 | 🟡 P1 | View 级别单元测试从 6 个增加到 23 个，但仍有 2 个 skipped |
+| 文档债务严重 | 🟡 P1 | 根目录与 docs/ 混放、重复文档并存、命名不统一、无目录索引，共 26 个文件散落各处 |
 | 菜品模型过于简化 | 🟢 P3 | 已增加沽清状态，仍缺多规格、库存管理 |
 
 ### 7.2 已解决的历史问题（归档）
@@ -376,6 +377,7 @@ deploy.sh:   NGINX_ROOT="/var/www/restaurant-pos"
 ### 🔴 P1 - 近期必须完成
 - [x] **统计页后端聚合**: ✅ 已完成 `/api/stats` 自定义路由，SQLite 原生聚合
 - [ ] **补核心单元/E2E 测试**: OrderFormView 测试已基本覆盖（84.9%），但 2 个 skipped 待修复
+- [ ] **文档目录整理**: 根目录 7 个 md 文件移入 docs/；删除过时文档（DEPLOY_CUTLERY_FEATURE.md、CODE_AUDIT_REPORT_20250414.md、TEST_COVERAGE.md）；重命名 CHECKLIST.md → feature-checklist.md；创建 docs/README.md 索引；删除 .bak 备份文件
 - [x] **API 统一封装 + 错误标准化**: ✅ 已完成 `handleResponse` + 请求/响应拦截器
 - [x] **前端错误监控**: ✅ 已完成 Sentry 接入（生产环境自动上报）
 
@@ -393,7 +395,49 @@ deploy.sh:   NGINX_ROOT="/var/www/restaurant-pos"
 
 ---
 
-## 9. 常用命令速查
+## 9. Agent 协作看板（所有 Agent 必须遵守）
+
+> **用途**: 多 Agent 并行工作时的共享状态板，避免任务冲突、重复劳动、进度不透明  
+> **更新规则**: Agent 在**启动/恢复时登记**、**每完成一个子任务后更新**、**退出前标记完成或交接**  
+> **冲突解决**: 若两个 Agent 同时声明同一任务，以 `最后更新` 时间戳较晚者为准，另一 Agent 应立即释放并重新认领
+
+### 9.1 协作规则
+
+1. **启动必登记**：任何 Agent 在开始工作前，必须在本节表格中新增一行登记
+2. **定期报心跳**：长时间运行（>10 分钟）的 Agent，至少每 10 分钟更新一次 `最后更新` 时间
+3. **文件加锁**：修改核心文件（如 `pb_hooks/orders.pb.js`、`src/api/pocketbase.ts`、视图组件）前，先在看板中声明锁定，完成后释放
+4. **不交叉修改**：同一文件在同一时间只能被一个 Agent 锁定；发现锁冲突时，等待或协商拆分任务
+5. **退出必注销**：Agent 完成工作或被中断时，将状态改为 `completed`/`failed`/`idle`，并写入交付物摘要
+
+### 9.2 当前活跃 Agent 状态
+
+| Agent ID | 当前任务 | 状态 | 进度 | 锁定文件/范围 | 阻塞项 | 最后更新 | 预计完成 |
+|----------|----------|------|------|---------------|--------|----------|----------|
+| *(空)* | — | — | — | — | — | — | — |
+
+**状态枚举**: `idle`（待命） / `running`（执行中） / `completed`（已完成） / `failed`（失败） / `blocked`（被阻塞）
+
+### 9.3 历史完成记录（最近 5 条）
+
+| 时间 | Agent ID | 任务 | 结果 | 交付物 |
+|------|----------|------|------|--------|
+| 2026-04-21 16:15 | `arch-reviewer` | 沽清功能文档合并 | completed | 3个文档合并为 `docs/sold-out-feature.md`；删除 `SOLD_OUT_FEATURE_SPEC.md` + `沽清功能架构审查报告.md`；追加架构审查结论为附录C |
+| 2026-04-21 16:00 | `arch-reviewer` | 文档目录整理（方案A） | completed | 根目录7文件移入docs/；删除4个过时文档；重命名CHECKLIST.md；创建docs/README.md |
+| 2026-04-21 11:40 | `arch-reviewer` | 架构优化路线图制定 | completed | `docs/ARCHITECTURE_ROADMAP_20250421.md` |
+| 2026-04-21 11:39 | `deploy-bot` | 生产部署 v1.0.2 | completed | 备份 `pre-20260421-113913-accessToken-fix` |
+| 2026-04-21 10:14 | `bugfix-gov` | 业务逻辑全面治理 BUG-GOV-001~008 | completed | commit `97b698a` |
+
+### 9.4 文件锁定区
+
+> 以下文件当前被 Agent 独占修改，其他 Agent **禁止直接编辑**：
+
+| 文件路径 | 锁定 Agent | 锁定时间 | 预计释放 |
+|----------|-----------|----------|----------|
+| *(空)* | — | — | — |
+
+---
+
+## 10. 常用命令速查
 
 ```bash
 # 开发启动
@@ -427,7 +471,7 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ---
 
-## 10. 断点恢复卡（对话异常中断时使用）
+## 11. 断点恢复卡（对话异常中断时使用）
 
 > **用途**: 对话意外退出（浏览器崩溃、系统断电、网络断线、超时回收）后，下次对话快速恢复上下文
 > **使用方法**: 复制下方整个代码块，粘贴给 AI 即可
@@ -435,7 +479,7 @@ sudo nginx -t && sudo systemctl reload nginx
 ```
 请按以下步骤恢复智能点菜系统的上下文：
 
-1. 读取 /var/www/restaurant-pos-vue/project-notes.md
+1. 读取 /var/www/restaurant-pos-vue/docs/project-notes.md
 2. 读取 /var/www/restaurant-pos-vue/docs/智能点菜系统-详细设计说明书.md
 3. 执行 `cd /var/www/restaurant-pos-vue && git log --oneline -10`
 4. 执行 `cd /var/www/restaurant-pos-vue && git diff HEAD~2 --stat`

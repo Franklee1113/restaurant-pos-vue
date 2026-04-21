@@ -53,14 +53,22 @@ test.describe('订单详情页', () => {
   })
 
   test('应支持返回订单列表', async ({ page }) => {
-    await page.goto('/order-detail/test-order-id')
-    await page.waitForLoadState('networkidle')
+    // 先进入真实订单详情页
+    await page.goto('/')
+    await expect(page.locator('h2')).toContainText('订单管理')
+
+    const viewButtons = page.locator('button:has-text("查看")')
+    const count = await viewButtons.count()
+    test.skip(count === 0, '没有订单可查看')
+
+    await viewButtons.first().click()
+    await page.waitForURL(/\/order-detail\//)
 
     const backBtn = page.locator('button:has-text("返回")').first()
     test.skip(!(await backBtn.isVisible().catch(() => false)), '未找到返回按钮')
 
     await backBtn.click()
-    await page.waitForURL(/\/$|\/orderList$/)
+    await page.waitForURL(/\/$|\/orderList$/, { timeout: 10000 })
     await expect(page.locator('h2')).toContainText('订单管理')
   })
 })

@@ -74,10 +74,10 @@ export async function handleResponse<T>(response: Response): Promise<T | null> {
 
     try {
       const errorJson = await response.json()
-      errorMessage = errorJson.message || errorJson.error || `HTTP ${response.status}`
+      errorMessage = errorJson?.message || errorJson?.error || `HTTP ${response.status}`
       errorData = errorJson
     } catch {
-      errorMessage = `HTTP ${response.status}: ${response.statusText}`
+      errorMessage = `HTTP ${response.status}${response.statusText ? ': ' + response.statusText : ''}`
     }
 
     if (response.status === 401) {

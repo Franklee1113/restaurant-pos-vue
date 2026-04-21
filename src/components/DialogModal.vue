@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, computed } from 'vue'
 
 const props = defineProps<{
   open: boolean
@@ -22,10 +22,11 @@ function onKeydown(ev: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
-const typeClass =
+const typeClass = computed(() =>
   props.type === 'danger'
     ? 'bg-red-600 hover:bg-red-700 text-white'
     : 'bg-blue-600 hover:bg-blue-700 text-white'
+)
 </script>
 
 <template>

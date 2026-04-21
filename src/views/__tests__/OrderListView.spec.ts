@@ -55,6 +55,7 @@ vi.mock('@/api/pocketbase', async () => {
     OrderAPI: {
       getOrders: vi.fn(),
       deleteOrder: vi.fn(),
+      updateOrderStatus: vi.fn(),
     },
     DishAPI: {
       getDishes: vi.fn(),
@@ -113,17 +114,19 @@ function mountOrderListView() {
 describe('OrderListView', () => {
   let toastSuccess: ReturnType<typeof vi.fn>
   let toastError: ReturnType<typeof vi.fn>
+  let toastWarning: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     vi.clearAllMocks()
 
     toastSuccess = vi.fn()
     toastError = vi.fn()
+    toastWarning = vi.fn()
     vi.mocked(useToast).mockReturnValue({
       success: toastSuccess,
       error: toastError,
       info: vi.fn(),
-      warning: vi.fn(),
+      warning: toastWarning,
     } as any)
 
     vi.mocked(OrderAPI.getOrders).mockResolvedValue({
@@ -295,5 +298,324 @@ describe('OrderListView', () => {
     expect(globalConfirm.confirm).toHaveBeenCalled()
     expect(OrderAPI.deleteOrder).toHaveBeenCalledWith('o1')
     expect(toastSuccess).toHaveBeenCalledWith('删除成功')
+  })
+
+  // ── Filters ──
+  it('should apply status filter', async () => {
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.filter.status = OrderStatus.COOKING
+    await vm.applyFilter()
+    await flushPromises()
+
+    expect(OrderAPI.getOrders).toHaveBeenCalledWith(expect.any(Number), expect.any(Number), expect.stringContaining("status='cooking'"))
+  })
+
+  it('should apply tableNo filter', async () => {
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.filter.tableNo = 'A1'
+    await vm.applyFilter()
+    await flushPromises()
+
+    expect(OrderAPI.getOrders).toHaveBeenCalledWith(expect.any(Number), expect.any(Number), expect.stringContaining("tableNo~'A1'"))
+  })
+
+  it('should apply date filter', async () => {
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.filter.date = '2026-04-20'
+    await vm.applyFilter()
+    await flushPromises()
+
+    expect(OrderAPI.getOrders).toHaveBeenCalledWith(expect.any(Number), expect.any(Number), expect.stringContaining("created>='"))
+  })
+
+  it('should apply search keyword filter', async () => {
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.searchKeyword = 'O2026'
+    await vm.loadOrders()
+    await flushPromises()
+
+    expect(OrderAPI.getOrders).toHaveBeenCalledWith(expect.any(Number), expect.any(Number), expect.stringContaining("orderNo~'O2026'"))
+  })
+
+  it('should reset all filters', async () => {
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.filter.status = OrderStatus.PENDING
+    vm.filter.tableNo = 'A1'
+    vm.searchKeyword = 'test'
+    await vm.resetFilter()
+    await flushPromises()
+
+    expect(vm.filter.status).toBe('')
+    expect(vm.filter.tableNo).toBe('')
+    expect(vm.searchKeyword).toBe('')
+  })
+
+  // ── Quick Filters ──
+  it('should quick filter by status', async () => {
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.quickFilterStatus(OrderStatus.PENDING)
+    await flushPromises()
+
+    expect(vm.filter.status).toBe(OrderStatus.PENDING)
+    expect(OrderAPI.getOrders).toHaveBeenCalled()
+
+    // Toggle off
+    vm.quickFilterStatus(OrderStatus.PENDING)
+    await flushPromises()
+    expect(vm.filter.status).toBe('')
+  })
+
+  it('should quick filter by table', async () => {
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.quickFilterTable('A1')
+    await flushPromises()
+
+    expect(vm.filter.tableNo).toBe('A1')
+  })
+
+  // ── Clear Table ──
+  it('should clear table after confirmation', async () => {
+    const checkMock = vi.mocked(useClearTable).mockReturnValue({
+      checkCanClearTable: vi.fn().mockResolvedValue({ canClear: true, tableStatus: { id: 'ts1', tableNo: 'A1', status: 'dining' } }),
+      executeClearTable: vi.fn().mockResolvedValue(undefined),
+    } as any)
+
+    vi.mocked(globalConfirm.confirm).mockResolvedValue(true)
+
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    await vm.clearTable('A1')
+    await flushPromises()
+
+    expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining('已清台'))
+  })
+
+  it('should block clear table when idle', async () => {
+    vi.mocked(useClearTable).mockReturnValue({
+      checkCanClearTable: vi.fn().mockResolvedValue({ canClear: false, reason: 'idle' }),
+      executeClearTable: vi.fn(),
+    } as any)
+
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    await vm.clearTable('A1')
+    await flushPromises()
+
+    expect(globalConfirm.confirm).toHaveBeenCalledWith(expect.objectContaining({ title: '无需清台' }))
+  })
+
+  it('should block clear table when unfinished orders exist', async () => {
+    vi.mocked(useClearTable).mockReturnValue({
+      checkCanClearTable: vi.fn().mockResolvedValue({ canClear: false, reason: 'unfinished' }),
+      executeClearTable: vi.fn(),
+    } as any)
+
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    await vm.clearTable('A1')
+    await flushPromises()
+
+    expect(globalConfirm.confirm).toHaveBeenCalledWith(expect.objectContaining({ title: '不可清台' }))
+  })
+
+  it('should block clear table when dining', async () => {
+    vi.mocked(useClearTable).mockReturnValue({
+      checkCanClearTable: vi.fn().mockResolvedValue({ canClear: false, reason: 'dining' }),
+      executeClearTable: vi.fn(),
+    } as any)
+
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    await vm.clearTable('A1')
+    await flushPromises()
+
+    expect(globalConfirm.confirm).toHaveBeenCalledWith(expect.objectContaining({ title: '不可清台' }))
+  })
+
+  it('should handle clear table execution error', async () => {
+    vi.mocked(useClearTable).mockReturnValue({
+      checkCanClearTable: vi.fn().mockResolvedValue({ canClear: true, tableStatus: { id: 'ts1', tableNo: 'A1', status: 'dining' } }),
+      executeClearTable: vi.fn().mockRejectedValue(new Error('清台失败')),
+    } as any)
+
+    vi.mocked(globalConfirm.confirm).mockResolvedValue(true)
+
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    await vm.clearTable('A1')
+    await flushPromises()
+
+    expect(toastError).toHaveBeenCalledWith(expect.stringContaining('清台失败'))
+  })
+
+  // ── Status Update ──
+  it('should update order status after confirmation', async () => {
+    vi.mocked(globalConfirm.confirm).mockResolvedValue(true)
+    vi.mocked(OrderAPI.updateOrderStatus).mockResolvedValue(undefined as any)
+
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    const order = createMockOrder(OrderStatus.PENDING)
+    await vm.updateStatus(order, OrderStatus.COOKING)
+    await flushPromises()
+
+    expect(globalConfirm.confirm).toHaveBeenCalled()
+    expect(OrderAPI.updateOrderStatus).toHaveBeenCalledWith('o1', OrderStatus.COOKING)
+    expect(toastSuccess).toHaveBeenCalledWith('状态更新成功')
+  })
+
+  it('should handle status update failure', async () => {
+    vi.mocked(globalConfirm.confirm).mockResolvedValue(true)
+    vi.mocked(OrderAPI.updateOrderStatus).mockRejectedValue(new Error('DB错误'))
+
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    const order = createMockOrder(OrderStatus.PENDING)
+    await vm.updateStatus(order, OrderStatus.COOKING)
+    await flushPromises()
+
+    expect(toastError).toHaveBeenCalledWith(expect.stringContaining('状态更新失败'))
+  })
+
+  // ── Export Excel ──
+  it('should warn when exporting empty orders', async () => {
+    vi.mocked(OrderAPI.getOrders).mockResolvedValue({
+      items: [],
+      totalItems: 0,
+      page: 1,
+      perPage: 20,
+      totalPages: 0,
+    } as any)
+
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.exportExcel()
+
+    expect(toastWarning).toHaveBeenCalledWith('当前没有订单可导出')
+  })
+
+  // ── Stats ──
+  it('should calculate today stats correctly', async () => {
+    const today = new Date().toISOString()
+    vi.mocked(OrderAPI.getOrders).mockResolvedValue({
+      items: [
+        createMockOrder(OrderStatus.PENDING, { created: today, finalAmount: 100 }),
+        createMockOrder(OrderStatus.SETTLED, { id: 'o2', created: today, finalAmount: 200 }),
+      ],
+      totalItems: 2,
+      page: 1,
+      perPage: 20,
+      totalPages: 1,
+    } as any)
+
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    expect(vm.stats.today).toBe(2)
+    expect(vm.stats.pending).toBe(1)
+  })
+
+  it('should compute pending table numbers', async () => {
+    vi.mocked(OrderAPI.getOrders).mockResolvedValue({
+      items: [
+        createMockOrder(OrderStatus.PENDING, { tableNo: 'A1' }),
+        createMockOrder(OrderStatus.COOKING, { id: 'o2', tableNo: 'A1' }),
+        createMockOrder(OrderStatus.COMPLETED, { id: 'o3', tableNo: 'A2' }),
+      ],
+      totalItems: 3,
+      page: 1,
+      perPage: 20,
+      totalPages: 1,
+    } as any)
+
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    expect(vm.pendingTableNumbers).toContain('A1')
+    expect(vm.pendingTableNumbers).not.toContain('A2')
+  })
+
+  // ── View Navigation ──
+  it('should navigate to order detail', async () => {
+    const pushMock = vi.fn()
+    vi.mocked(useRouter).mockReturnValue({ push: pushMock } as any)
+
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.viewOrder(createMockOrder(OrderStatus.PENDING))
+
+    expect(pushMock).toHaveBeenCalledWith({ name: 'orderDetail', params: { orderId: 'o1' } })
+  })
+
+  // ── Silent Refresh ──
+  it('should play sound on new order during silent refresh', async () => {
+    const AudioContextMock = vi.fn(() => ({
+      createOscillator: vi.fn(() => ({ connect: vi.fn(), type: '', frequency: { setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() }, start: vi.fn(), stop: vi.fn() })),
+      createGain: vi.fn(() => ({ connect: vi.fn(), gain: { setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() } })),
+      currentTime: 0,
+    }))
+    // @ts-ignore
+    globalThis.window.AudioContext = AudioContextMock
+    // @ts-ignore
+    globalThis.window.webkitAudioContext = AudioContextMock
+
+    vi.mocked(OrderAPI.getOrders).mockResolvedValue({
+      items: [createMockOrder(OrderStatus.PENDING)],
+      totalItems: 1,
+      page: 1,
+      perPage: 20,
+      totalPages: 1,
+    } as any)
+
+    const wrapper = mountOrderListView()
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    await vm.silentRefresh()
+    await flushPromises()
+
+    // 因为订单数据未变化，不应播放声音
+    expect(AudioContextMock).not.toHaveBeenCalled()
   })
 })

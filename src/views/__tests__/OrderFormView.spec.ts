@@ -19,6 +19,7 @@ vi.mock('@/composables/useToast', () => ({
     success: vi.fn(),
     error: vi.fn(),
     info: vi.fn(),
+    warning: vi.fn(),
   })),
 }))
 
@@ -42,6 +43,7 @@ vi.mock('@/api/pocketbase', async () => {
     },
     DishAPI: {
       getDishes: vi.fn(),
+      toggleSoldOut: vi.fn(),
     },
   }
 })
@@ -78,6 +80,7 @@ describe('OrderFormView', () => {
   let toastSuccess: ReturnType<typeof vi.fn>
   let toastError: ReturnType<typeof vi.fn>
   let toastInfo: ReturnType<typeof vi.fn>
+  let toastWarning: ReturnType<typeof vi.fn>
   let pushMock: ReturnType<typeof vi.fn>
   let backMock: ReturnType<typeof vi.fn>
 
@@ -88,13 +91,14 @@ describe('OrderFormView', () => {
     toastSuccess = vi.fn()
     toastError = vi.fn()
     toastInfo = vi.fn()
+    toastWarning = vi.fn()
     vi.mocked(useToast).mockReturnValue({
       success: toastSuccess,
       error: toastError,
       info: toastInfo,
       toasts: { value: [] },
       show: vi.fn(),
-      warning: vi.fn(),
+      warning: toastWarning,
       remove: vi.fn(),
     } as any)
 
@@ -110,6 +114,8 @@ describe('OrderFormView', () => {
         { id: 'd4', name: '餐具', price: 2, category: '餐具', description: '' },
       ],
     } as any)
+
+    vi.mocked(useRoute).mockReturnValue({ name: 'createOrder', params: {} })
   })
 
   afterEach(() => {
@@ -239,8 +245,7 @@ describe('OrderFormView', () => {
     expect(vm.formErrors.items).toBeDefined()
   })
 
-  // TODO: 该测试在 jsdom 环境下 submit() 内部的 Zod safeParse 可能因响应式对象原因提前返回，需进一步调查
-  it.skip('should create order and navigate to list on successful submit', async () => {
+  it('should create order and navigate to list on successful submit', async () => {
     const wrapper = mountOrderFormView()
     await flushPromises()
     const vm = wrapper.vm as any
@@ -295,8 +300,7 @@ describe('OrderFormView', () => {
     expect(pushMock).toHaveBeenCalledWith({ name: 'orderList' })
   })
 
-  // TODO: 同上一测试，需进一步调查 submit() 在 jsdom 下的完整执行路径
-  it.skip('should show error toast when submit fails', async () => {
+  it('should show error toast when submit fails', async () => {
     const wrapper = mountOrderFormView()
     await flushPromises()
     const vm = wrapper.vm as any
@@ -392,5 +396,140 @@ describe('OrderFormView', () => {
     expect(backBtn.text()).toContain('返回')
     await backBtn.trigger('click')
     expect(backMock).toHaveBeenCalled()
+  })
+
+  it('should block adding soldOut dish to cart', async () => {
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.addToCart({ id: 'd3', name: '凉拌黄瓜', price: 12, category: '凉菜', soldOut: true })
+    expect(vm.cart.some((i: any) => i.dishId === 'd3')).toBe(false)
+    expect(toastWarning).toHaveBeenCalledWith(expect.stringContaining('已沽清'))
+  })
+
+  it('should auto-add 锅底 when adding 铁锅鱼', async () => {
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    // DISH_RULES: '铁锅鱼': { add: '锅底', qty: 1 }
+    vm.addToCart({ id: 'd1', name: '铁锅鱼', price: 68, category: '铁锅炖', description: '' })
+    await nextTick()
+    expect(vm.cart.some((i: any) => i.name === '锅底')).toBe(true)
+    expect(toastInfo).toHaveBeenCalledWith(expect.stringContaining('锅底'))
+  })
+
+  it('should not auto-add 锅底 when it is soldOut', async () => {
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.dishes = vm.dishes.map((d: any) => d.name === '锅底' ? { ...d, soldOut: true } : d)
+    vm.addToCart({ id: 'd1', name: '铁锅鱼', price: 68, category: '铁锅炖', description: '' })
+    await nextTick()
+    expect(vm.cart.some((i: any) => i.name === '锅底')).toBe(false)
+    expect(toastWarning).toHaveBeenCalledWith(expect.stringContaining('锅底'))
+  })
+
+  it('should increment quantity for existing cart item', async () => {
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.addToCart({ id: 'd3', name: '凉拌黄瓜', price: 12, category: '凉菜' })
+    vm.addToCart({ id: 'd3', name: '凉拌黄瓜', price: 12, category: '凉菜' })
+    await nextTick()
+    const item = vm.cart.find((i: any) => i.dishId === 'd3')
+    expect(item.quantity).toBe(2)
+  })
+
+  it('should mark dish soldOut with optimistic update and rollback on failure', async () => {
+    vi.mocked(DishAPI.toggleSoldOut).mockRejectedValue(new Error('网络错误'))
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    const dish = { id: 'd3', name: '凉拌黄瓜', price: 12, category: '凉菜', soldOut: false }
+    await vm.markDishSoldOut(dish, '临时缺货')
+    await flushPromises()
+    const idx = vm.dishes.findIndex((d: any) => d.id === 'd3')
+    expect(vm.dishes[idx].soldOut).toBe(false)
+    expect(toastError).toHaveBeenCalledWith(expect.stringContaining('标记失败'))
+  })
+
+  it('should mark dish available with rollback on failure', async () => {
+    vi.mocked(DishAPI.toggleSoldOut).mockRejectedValue(new Error('网络错误'))
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    const dish = { id: 'd3', name: '凉拌黄瓜', price: 12, category: '凉菜', soldOut: true, soldOutNote: '缺货', soldOutAt: '2026-04-20T00:00:00Z' }
+    vm.dishes = vm.dishes.map((d: any) => d.id === 'd3' ? dish : d)
+    await vm.markDishAvailable(dish)
+    await flushPromises()
+    const idx = vm.dishes.findIndex((d: any) => d.id === 'd3')
+    expect(vm.dishes[idx].soldOut).toBe(true)
+    expect(toastError).toHaveBeenCalledWith(expect.stringContaining('恢复失败'))
+  })
+
+  it('should remove cart item when confirmEditQty with zero', async () => {
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.addToCart({ id: 'd3', name: '凉拌黄瓜', price: 12, category: '凉菜' })
+    await nextTick()
+    vm.startEditQty('d3')
+    vm.editingQtyValue = 0
+    await vm.confirmEditQty()
+    expect(vm.cart.some((i: any) => i.dishId === 'd3')).toBe(false)
+  })
+
+  it('should remove cart item when confirmEditQty with NaN', async () => {
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.addToCart({ id: 'd3', name: '凉拌黄瓜', price: 12, category: '凉菜' })
+    await nextTick()
+    vm.startEditQty('d3')
+    vm.editingQtyValue = 'abc'
+    await vm.confirmEditQty()
+    expect(vm.cart.some((i: any) => i.dishId === 'd3')).toBe(false)
+  })
+
+  it('should validate percent discount range when safeParse passes', async () => {
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.tableNo = 'A1'
+    vm.guests = 4
+    vm.cart = [{ dishId: 'd3', name: '凉拌黄瓜', price: 12, quantity: 1, remark: '' }]
+    vm.discountType = 'percent'
+    vm.discountValue = 15
+    await vm.submit()
+    // BUG-FIX-001: percent range check now runs independently after safeParse
+    expect(vm.formErrors.discountValue).toBe('折扣比例应在0.1-10之间，如8代表8折')
+    expect(vi.mocked(OrderAPI.createOrder)).not.toHaveBeenCalled()
+  })
+
+  it('should also show percent discount error when safeParse fails for other reasons', async () => {
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.tableNo = ''
+    vm.guests = 4
+    vm.cart = [{ dishId: 'd3', name: '凉拌黄瓜', price: 12, quantity: 1, remark: '' }]
+    vm.discountType = 'percent'
+    vm.discountValue = 15
+    await vm.submit()
+    // safeParse fails due to empty tableNo, and the extra discount check still kicks in
+    expect(vm.formErrors.discountValue).toBe('折扣比例应在0.1-10之间，如8代表8折')
+    expect(vi.mocked(OrderAPI.createOrder)).not.toHaveBeenCalled()
+  })
+
+  it('should block submit when cart contains soldOut items', async () => {
+    const wrapper = mountOrderFormView()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.tableNo = 'A1'
+    vm.cart = [{ dishId: 'd3', name: '凉拌黄瓜', price: 12, quantity: 1, remark: '' }]
+    vm.dishes = vm.dishes.map((d: any) => d.id === 'd3' ? { ...d, soldOut: true } : d)
+    await vm.submit()
+    expect(toastError).toHaveBeenCalledWith(expect.stringContaining('已沽清'))
+    expect(vi.mocked(OrderAPI.createOrder)).not.toHaveBeenCalled()
   })
 })

@@ -7,7 +7,8 @@ test.describe('厨房大屏', () => {
 
     await expect(page.locator('text=厨房大屏')).toBeVisible()
     await expect(page.locator('text=待制作')).toBeVisible()
-    await expect(page.locator('text=制作中')).toBeVisible()
+    // 避免 strict mode：页面上可能有 "制作中 1 道" 等包含文字的元素
+    await expect(page.getByText('制作中', { exact: true }).first()).toBeVisible()
   })
 
   test('应显示空状态或订单卡片', async ({ page }) => {

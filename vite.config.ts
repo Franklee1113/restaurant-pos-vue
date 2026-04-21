@@ -7,6 +7,18 @@ import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
 export default defineConfig({
+  server: {
+    proxy: {
+      '/api/public': {
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: true,
+      },
+      '/api': {
+        target: 'http://127.0.0.1:8090',
+        changeOrigin: true,
+      },
+    },
+  },
   plugins: [
     vue(),
     vueDevTools(),

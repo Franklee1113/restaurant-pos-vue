@@ -205,6 +205,7 @@ async function loadData() {
         if (order && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.SETTLED) {
           currentOrder.value = order
           guests.value = typeof order.guests === 'number' ? order.guests : 1
+          showGuestSetup.value = false
         } else {
           // 订单已结束，清除会话
           session.clear()
@@ -226,6 +227,7 @@ async function loadData() {
           // 未完成订单：自动加入（新顾客或原顾客会话过期）
           currentOrder.value = firstOrder
           guests.value = typeof firstOrder.guests === 'number' ? firstOrder.guests : 1
+          showGuestSetup.value = false
           // 从返回数据中提取 accessToken 创建新会话，支持追加菜品
           if (firstOrder.accessToken) {
             const newSession = new CustomerSession(firstOrder.id, firstOrder.accessToken)

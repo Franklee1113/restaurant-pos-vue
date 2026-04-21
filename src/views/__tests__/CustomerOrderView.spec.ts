@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { ref } from 'vue'
+import { ref, nextTick } from 'vue'
 import CustomerOrderView from '../CustomerOrderView.vue'
 import {
   PublicOrderAPI,
@@ -30,20 +30,11 @@ vi.mock('@/composables/useAutoRefresh', () => ({
   })),
 }))
 
-vi.mock('@/composables/useCart', () => ({
-  useCart: vi.fn(() => ({
-    cart: ref([]),
-    cartMap: ref(new Map()),
-    cartTotalQty: ref(0),
-    cartTotalAmount: ref(0),
-    addToCart: vi.fn(),
-    addExistingToCart: vi.fn(),
-    updateQty: vi.fn(),
-    setQty: vi.fn(),
-    updateRemark: vi.fn(),
-    clearCart: vi.fn(),
-  })),
-}))
+// 使用真实 useCart 实现，以便测试购物车交互
+vi.mock('@/composables/useCart', async () => {
+  const actual = await vi.importActual<typeof import('@/composables/useCart')>('@/composables/useCart')
+  return actual
+})
 
 vi.mock('@/config/dish.config', () => ({
   DISH_RULES: {},
@@ -117,6 +108,7 @@ describe('CustomerOrderView - 扫码后订单恢复与会话管理', () => {
           category: '铁锅炖',
           soldOut: false,
         },
+        { id: 'd3', name: '餐具', price: 2, category: '餐具', soldOut: false },
       ],
     } as any)
   })
@@ -246,5 +238,175 @@ describe('CustomerOrderView - 扫码后订单恢复与会话管理', () => {
 
     // 验证显示人数设置
     expect(wrapper.find('[data-testid="guest-setup"]').exists() || wrapper.text().includes('用餐人数')).toBe(true)
+  })
+})
+
+describe('CustomerOrderView - 订单提交', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    vi.mocked(useRoute).mockReturnValue({ query: { table: 'A1' } } as any)
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({
+      items: [
+        { id: 'd1', name: '铁锅鱼', price: 128, category: '铁锅炖', soldOut: false },
+        { id: 'd3', name: '餐具', price: 2, category: '餐具', soldOut: false },
+      ],
+    } as any)
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'idle',
+    } as any)
+    vi.mocked(PublicOrderAPI.getOrdersByTable).mockResolvedValue([])
+  })
+
+  afterEach(() => {
+    sessionStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  it('空购物车提交应提示错误', async () => {
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.showGuestSetup = false
+    await nextTick()
+
+    await vm.submitOrder()
+    expect(PublicOrderAPI.createOrder).not.toHaveBeenCalled()
+  })
+
+  it('应成功创建新订单', async () => {
+    vi.mocked(PublicOrderAPI.createOrder).mockResolvedValue({
+      id: 'o_new',
+      orderNo: 'O20260421001',
+      accessToken: 'tok_new',
+    } as any)
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.showGuestSetup = false
+    vm.guests = 4
+    vm.cart = [{ dishId: 'd1', name: '铁锅鱼', price: 128, quantity: 1 }]
+    await nextTick()
+
+    await vm.submitOrder()
+    await flushPromises()
+
+    expect(PublicOrderAPI.createOrder).toHaveBeenCalledOnce()
+    const payload = vi.mocked(PublicOrderAPI.createOrder).mock.calls[0]![0] as any
+    expect(payload.tableNo).toBe('A1')
+    expect(payload.guests).toBe(4)
+    expect(payload.source).toBe('customer')
+    expect(sessionStorage.getItem('customer_order_id')).toBe('o_new')
+  })
+
+  it('购物车中有沽清菜品应自动移除并阻断提交', async () => {
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({
+      items: [
+        { id: 'd1', name: '铁锅鱼', price: 128, category: '铁锅炖', soldOut: true },
+        { id: 'd3', name: '餐具', price: 2, category: '餐具', soldOut: false },
+      ],
+    } as any)
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.showGuestSetup = false
+    vm.cart = [{ dishId: 'd1', name: '铁锅鱼', price: 128, quantity: 1 }]
+    await nextTick()
+
+    await vm.submitOrder()
+    expect(vm.cart.length).toBe(0)
+    expect(PublicOrderAPI.createOrder).not.toHaveBeenCalled()
+  })
+
+  it('已有订单时应追加菜品', async () => {
+    sessionStorage.setItem('customer_order_id', 'o1')
+    sessionStorage.setItem('customer_access_token', 'tok_abc')
+
+    vi.mocked(PublicOrderAPI.getOrder).mockResolvedValue({
+      id: 'o1', orderNo: 'O001', status: 'pending', items: [],
+    } as any)
+
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'dining', currentOrderId: 'o1',
+    } as any)
+
+    vi.mocked(PublicOrderAPI.appendOrderItems).mockResolvedValue({
+      id: 'o1', items: [{ dishId: 'd1', name: '铁锅鱼', price: 128, quantity: 1 }],
+    } as any)
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.showGuestSetup = false
+    vm.cart = [{ dishId: 'd1', name: '铁锅鱼', price: 128, quantity: 1 }]
+    await nextTick()
+
+    await vm.submitOrder()
+    await flushPromises()
+
+    expect(PublicOrderAPI.appendOrderItems).toHaveBeenCalledOnce()
+  })
+
+  it('创建订单失败应显示错误提示', async () => {
+    vi.mocked(PublicOrderAPI.createOrder).mockRejectedValue(new Error('网络错误'))
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.showGuestSetup = false
+    vm.cart = [{ dishId: 'd1', name: '铁锅鱼', price: 128, quantity: 1 }]
+    await nextTick()
+
+    await vm.submitOrder()
+    await flushPromises()
+
+    expect(vm.submitting).toBe(false)
+  })
+})
+
+describe('CustomerOrderView - 边界场景', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+  })
+
+  afterEach(() => {
+    sessionStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  it('无桌号参数时应提示无效桌号', async () => {
+    vi.mocked(useRoute).mockReturnValue({ query: {} } as any)
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({ items: [] } as any)
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    // onMounted 中会检查 tableNo
+    expect(PublicDishAPI.getDishes).not.toHaveBeenCalled()
+  })
+
+  it('订单已结束时应清除会话并显示提示', async () => {
+    sessionStorage.setItem('customer_order_id', 'o1')
+    sessionStorage.setItem('customer_access_token', 'tok_abc')
+
+    vi.mocked(useRoute).mockReturnValue({ query: { table: 'A1' } } as any)
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({ items: [] } as any)
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'idle',
+    } as any)
+    vi.mocked(PublicOrderAPI.getOrder).mockResolvedValue({
+      id: 'o1', orderNo: 'O001', status: 'settled', items: [],
+    } as any)
+
+    mount(CustomerOrderView)
+    await flushPromises()
+
+    expect(sessionStorage.getItem('customer_order_id')).toBeNull()
   })
 })

@@ -1,0 +1,30 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "http://localhost:5173",
+      "localStorage": [
+        {
+          "name": "__VUE_DEVTOOLS_NEXT_PLUGIN_SETTINGS__dev.esm.pinia__",
+          "value": "{\"logStoreChanges\":true}"
+        },
+        {
+          "name": "__vue-devtools-frame-state__",
+          "value": "{\"width\":80,\"height\":60,\"top\":0,\"left\":50,\"open\":false,\"route\":\"/\",\"position\":\"bottom\",\"isFirstVisit\":true,\"closeOnOutsideClick\":false,\"minimizePanelInactive\":5000,\"preferShowFloatingPanel\":true,\"reduceMotion\":false}"
+        },
+        {
+          "name": "pb_user",
+          "value": "{\"avatar\":\"\",\"collectionId\":\"_pb_users_auth_\",\"collectionName\":\"users\",\"created\":\"2026-04-08 10:03:43.664Z\",\"email\":\"admin@restaurant.com\",\"emailVisibility\":false,\"id\":\"jqqiih5u3y5g5h9\",\"name\":\"管理员\",\"updated\":\"2026-04-08 10:17:50.868Z\",\"username\":\"users48674\",\"verified\":false}"
+        },
+        {
+          "name": "__vue-devtools-theme__",
+          "value": "auto"
+        },
+        {
+          "name": "pb_token",
+          "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb2xsZWN0aW9uSWQiOiJfcGJfdXNlcnNfYXV0aF8iLCJleHAiOjE3Nzc5NzQ2NjEsImlkIjoianFxaWloNXUzeTVnNWg5IiwidHlwZSI6ImF1dGhSZWNvcmQifQ.Tly38MneU8fXIkMSjMDczij3OP8It4O9RkomXDuma1I"
+        }
+      ]
+    }
+  ]
+}

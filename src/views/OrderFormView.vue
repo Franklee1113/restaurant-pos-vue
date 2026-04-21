@@ -420,6 +420,12 @@ async function submit() {
     return
   }
 
+  // BUG-FIX-001: percent 折扣范围检查必须在 safeParse 通过后独立执行
+  if (payload.discountType === 'percent' && (payload.discountValue <= 0 || payload.discountValue > 10)) {
+    formErrors.value.discountValue = '折扣比例应在0.1-10之间，如8代表8折'
+    return
+  }
+
   if (!Validators.amount(orderSummary.value.subtotal) || !Validators.amount(orderSummary.value.final)) {
     toast.error('订单金额异常，请检查')
     return
