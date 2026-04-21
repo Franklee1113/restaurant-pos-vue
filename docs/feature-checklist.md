@@ -69,7 +69,7 @@
 
 - [ ] **KDS（厨房大屏）**
   - 新订单是否出现
-  - 状态变更（pending → cooking → served）是否同步
+  - 状态变更（pending → cooking → cooked）是否同步
 
 ---
 

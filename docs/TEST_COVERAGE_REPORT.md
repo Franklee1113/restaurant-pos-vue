@@ -175,11 +175,14 @@
 |----------|------|----------|
 | `e2e/login.spec.ts` | 登录页验证 | ~4 |
 | `e2e/order-flow.spec.ts` | 黄金流程（登录→建单→状态变更→详情→打印） | ~10 |
+| `e2e/customer-order-flow.spec.ts` | 顾客扫码点餐完整链路 | ~6 |
 | `e2e/dish-management.spec.ts` | 菜品维护 CRUD | ~6 |
+| `e2e/sold-out-sync.spec.ts` | 沽清标记多端同步 | ~4 |
 | `e2e/settings.spec.ts` | 系统设置页 | ~5 |
 | `e2e/order-detail.spec.ts` | 订单详情操作 | ~7 |
 | `e2e/kitchen-display.spec.ts` | 厨房大屏展示 | ~6 |
-| **合计** | | **~38** |
+| `e2e/clear-table-integration.spec.ts` | 清台交互联动 | ~4 |
+| **合计** | | **~52** |
 
 **建议后续补充**:
 - 顾客端扫码点餐 → 加菜 → 支付完整链路

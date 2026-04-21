@@ -82,7 +82,7 @@
 
 **风险**：
 - `login()` 方法内直接调用原生 `fetch`，未复用 `pocketbase.ts` 中的 `fetchWithTimeout` 和错误处理逻辑，存在请求超时无处理和错误格式不一致的问题
-- Token 永不过期检查（除 401 响应外），长期登录安全性依赖 PocketBase 后端配置
+- Token 客户端过期检查已补充 `isTokenExpired()`（2026-04-19 修复），但 `auth.store.ts` 的 `isLoggedIn` 仍不验证 Token 有效性，在过期后到首次 API 调用前仍被认为已登录
 
 #### 3.2 设置状态 (`settings.store.ts`)
 
@@ -166,7 +166,7 @@ async function fetchSettings(force = false) {
 
 **架构债务**：
 
-1. **"上帝组件"倾向**：665 行代码混合了数据层、业务逻辑层、视图层。建议将筛选逻辑、清台逻辑、统计计算抽取到 composables。
+1. **"上帝组件"倾向**：828 行代码混合了数据层、业务逻辑层、视图层。建议将筛选逻辑、清台逻辑、统计计算抽取到 composables。
 
 2. **`buildFilterString` 直接拼接 PocketBase 语法**：
    ```ts
@@ -255,7 +255,7 @@ async function fetchSettings(force = false) {
 
 #### 6.3 潜在问题
 
-- **794 行单文件**：这是系统中最庞大的单文件组件，混合了布局、动画、业务逻辑、数据获取。强烈建议拆分：
+- **891 行单文件**：这是系统中最庞大的单文件组件，混合了布局、动画、业务逻辑、数据获取。强烈建议拆分：
   - `CustomerHeader.vue`
   - `CategorySidebar.vue`
   - `DishList.vue`
@@ -488,11 +488,11 @@ const ok = await globalConfirm.confirm({
 | `orderStatus` | `orderStatus.spec.ts` | ? | 中等 |
 | `security` | `security.spec.ts` | ? | 中等 |
 
-**整体评估**：
+**整体评估**（截至 2026-04-21）：
 - ✅ `useCart` 测试充分，覆盖核心业务规则
-- ⚠️ 视图组件（Vue SFC）完全没有单元测试
-- ⚠️ API 层（`pocketbase.ts`）没有 mock 测试
-- ✅ Playwright E2E 已配置，覆盖登录、订单流、菜品维护、设置页
+- ✅ 视图组件已有 568 个单元测试通过，OrderListView 语句覆盖 90.75%
+- ✅ API 层已补充网络异常/SSE 分支测试，`pocketbase.ts` 分支覆盖 75.67%
+- ✅ Playwright E2E 已配置，覆盖登录、订单流、菜品维护、设置页、沽清同步、清台联动
 
 ---
 

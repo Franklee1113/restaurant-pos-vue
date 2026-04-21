@@ -169,7 +169,7 @@ flowchart TD
 
     EditMode --> EditOps[可执行操作:<br/>增/删/改菜品<br/>改人数/折扣/备注]
     EditOps --> AddNew{新增菜品}
-    AddNew -->|原订单 dining/serving| ResetStatus[后端 Hook:<br/>重置订单状态为 pending<br/>重新开台]
+    AddNew -->|原订单 dining/serving| ResetStatus[后端 Hook:<br/>新增菜品 status = pending<br/>订单整体状态保持不变]
     AddNew -->|原订单 pending/cooking| NormalUpdate[正常更新]
 
     EditOps --> RemoveDish{删除/减少菜品}
@@ -575,8 +575,8 @@ flowchart TD
 | **手动清台** | 三重校验: idle 阻断 / 未完成订单阻断 / dining 阻断；completed 清台时先转 settled |
 | **金额安全** | 后端 Hook 以分为单位强制重算，不信任前端金额；折扣仅作用于菜品，不含餐具费 |
 | **编辑权限** | completed / settled 禁止编辑；cancelled 可编辑 |
-| **加菜回退** | dining/serving 状态追加菜品 → 重置为 pending → 重新开台 |
-| **沽清拦截** | 员工端: 多层硬拦截(UI禁用+添加拦截+提交拦截)；顾客端: 软拦截(提交时自动移除) |
+| **加菜状态** | dining/serving 状态追加菜品 → 订单状态保持原状，新增菜品 status = pending |
+| **沽清拦截** | 员工端: 多层硬拦截(UI禁用+添加拦截+提交拦截)；顾客端: Stepper 置灰禁用 + 购物车标红 + 提交时自动移除 |
 | **桌台占用** | 前后端双重校验；数据库唯一索引兜底 |
-| **铁锅鱼规则** | 点铁锅鱼/铁锅炖鱼自动加锅底 1份；员工端检查锅底沽清，顾客端不检查 |
+| **铁锅鱼规则** | 点铁锅鱼/铁锅炖鱼自动加锅底 1份；员工端与顾客端统一检查锅底沽清 |
 | **餐具费** | 单价从 dishes 集合 category='餐具' 读取；员工端可选收费/免费，顾客端强制收费 |

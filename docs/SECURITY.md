@@ -64,9 +64,39 @@ sqlite3 /opt/pocketbase/pb_data/data.db \
 
 ---
 
-## 4. 后续安全待办
+## 4. 已知安全缺陷（待修复）
+
+### 4.1 后端 Filter 注入风险（🔴 P0）
+
+`server/src/services/*.ts` 中存在多处 PocketBase filter 字符串拼接，未对参数进行转义：
+
+```typescript
+// dish.service.ts:40
+const filter = ids.map((id) => `id='${id}'`).join(' || ')
+// table-status.service.ts:19
+filter: `tableNo='${tableNo}'`
+```
+
+**风险**：攻击者可构造恶意参数绕过查询条件，读取全量数据。  
+**修复方案**：所有 filter 拼接必须使用 `escapePbString()` 转义，或改用参数化查询。
+
+### 4.2 公共 API Admin Token 无自动刷新（🟡 P1）
+
+`server/src/plugins/pocketbase.ts` 中的 `adminToken` 在服务启动后永久保存。PocketBase Token 默认 14 天过期，过期后所有公共 API 调用将持续失败，需手动重启服务恢复。
+
+**修复方案**：增加定时刷新机制或过期前主动续约。
+
+### 4.3 生产环境 HTTP 明文传输（🔴 P0）
+
+生产环境当前使用 HTTP 明文传输，JWT Token、订单数据、支付二维码全部暴露。
+
+**修复方案**：申请 Let's Encrypt 证书，Nginx 强制 80→443 跳转。
+
+## 5. 后续安全待办
 
 - [ ] 启用 HTTPS（SSL/TLS 证书）
-- [ ] PocketBase 配置邮箱验证（如需要多用户）
+- [ ] 清理历史 commit 中的明文密码（BFG Repo-Cleaner）
+- [ ] PocketBase Admin 面板限制 IP 访问（`/_/`）
 - [ ] 定期轮换管理员密码
-- [ ] 考虑为 `settings` 集合增加管理员角色限制（当系统引入角色权限后）
+- [ ] 引入角色权限模型（admin / waiter / kitchen）
+- [ ] 考虑为 `settings` 集合增加管理员角色限制

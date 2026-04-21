@@ -153,7 +153,7 @@ npm run build
 |------|------|--------|
 | `VITE_PB_URL` | PocketBase API 地址（前端调用） | `/api` |
 | `VITE_SENTRY_DSN` | Sentry 错误监控 DSN | - |
-| `VITE_APP_VERSION` | 应用版本号 | `1.0.2` |
+| `VITE_APP_VERSION` | 应用版本号 | `1.1.3` |
 
 ---
 
@@ -211,7 +211,7 @@ docker compose up -d --build
 
 - **单元测试**: 600 个通过，2 个跳过 ✅ (`npm run test:unit`)
 - **E2E 测试**: 27 个通过，2 个条件跳过 ✅ (`npx playwright test`)
-  - 覆盖：登录、扫码点餐完整链路、清台联动、沽清同步、厨房大屏、订单核心流程、菜品维护、系统设置
+  - 覆盖：登录、扫码点餐完整链路、清台联动、沽清同步、厨房大屏、订单核心流程、菜品维护、系统设置（9 个测试文件，~52 个用例）
 
 ---
 

@@ -175,19 +175,68 @@ const discountValue = record.get('discountValue') !== undefined
 
 ---
 
+## 新增发现（2026-04-21 架构洞察）
+
+### 🔴 P0 新增：后端 Filter 注入漏洞
+
+| 项目 | 内容 |
+|------|------|
+| **文件** | `server/src/services/dish.service.ts:40`, `table-status.service.ts:19`, `order.service.ts:156` |
+| **问题** | `id`、`tableNo` 等参数直接拼入 PocketBase filter 字符串，未经过 `escapePbString` 转义 |
+| **风险** | 攻击者可构造恶意参数读取全量数据 |
+| **修复建议** | 服务层所有 filter 拼接增加 `escapePbString()` 转义 |
+
+### 🟡 P1 新增：后端类型安全缺口
+
+| 项目 | 内容 |
+|------|------|
+| **文件** | `server/src/services/order.service.ts` 多处 |
+| **问题** | `catch (err: any)`、`const updates: any`、`toOrderResult(record: any)` 滥用 `any` |
+| **风险** | 编译期无法发现字段变更，运行时可能因 SDK 升级导致映射错误 |
+| **修复建议** | 定义严格的 DTO 接口，启用 `strict: true` |
+
+### 🟡 P1 新增：Admin Token 无自动刷新
+
+| 项目 | 内容 |
+|------|------|
+| **文件** | `server/src/plugins/pocketbase.ts` |
+| **问题** | `adminToken` 启动后永久保存，14 天过期后服务将持续失败 |
+| **修复建议** | 增加定时刷新或过期前续约机制 |
+
+---
+
 ## 修复计划建议
 
 ### 第一批：P0 + 关键 P1（安全 + 金额正确性）
 **预计时间**: 2-3 小时  
-**涉及文件**: `pocketbase.ts`, `security.ts`, `orders.pb.js`, `StatisticsView.vue`
+**涉及文件**: `pocketbase.ts`, `security.ts`, `orders.pb.js`, `StatisticsView.vue`  
+**状态**: ✅ 2026-04-19 已完成
+
+### 第一批补充：后端安全加固
+**预计时间**: 1-2 小时  
+**涉及文件**: `server/src/services/*.ts`, `server/src/plugins/pocketbase.ts`  
+**状态**: ⏳ 待修复（Filter 注入 + Admin Token 刷新 + any 类型治理）
 
 ### 第二批：业务逻辑一致性（清台、状态按钮、组件刷新）
 **预计时间**: 1-2 小时  
-**涉及文件**: `OrderListView.vue`, `OrderDetailView.vue`, `OrderFormView.vue`, `CustomerOrderView.vue`
+**涉及文件**: `OrderListView.vue`, `OrderDetailView.vue`, `OrderFormView.vue`, `CustomerOrderView.vue`  
+**状态**: ✅ 2026-04-21 已完成（详见 CHANGELOG v1.1.3）
 
 ### 第三批：P2 优化（代码质量、常量提取）
 **预计时间**: 1 小时  
-**涉及文件**: `orderStatus.ts`, `useCart.ts`, `orders.pb.js`
+**涉及文件**: `orderStatus.ts`, `useCart.ts`, `orders.pb.js`  
+**状态**: ✅ 2026-04-19 已完成
+
+### 第四批：中风险问题优化（CI 门禁 + 测试覆盖提升）
+**预计时间**: 2-3 周  
+**涉及文件**: `.github/workflows/ci.yml`, `vitest.config.ts`, `eslint.config.js`, `src/views/__tests__/*`, `src/api/__tests__/*`  
+**状态**: 📋 方案已制定，待执行。详见 `docs/OPTIMIZATION_PLAN_20250421.md`
+
+**优化范围**:
+1. 恢复 CI 中 ESLint 检查（当前被注释）
+2. 补齐 `views/` 单元测试至分支 75%+/函数 70%+
+3. 增加 Vitest 覆盖率阈值门禁
+4. 补齐 `api/` 网络异常分支测试
 
 ---
 
@@ -197,6 +246,8 @@ const discountValue = record.get('discountValue') !== undefined
 |------|------|
 | 2026-04-19 | 完成全面代码审核，生成本报告 |
 | 2026-04-19 | **第一批修复完成** — 6 个 P0 全部修复，126 个单元测试全部通过 |
+| 2026-04-21 | 系统洞察完成，识别 4 个中风险问题，制定优化方案 `docs/OPTIMIZATION_PLAN_20250421.md` |
 | 待填写 | 第二批修复完成（P1 业务逻辑一致性） |
 | 待填写 | 第三批修复完成（P2 代码质量优化） |
+| 待填写 | 第四批优化完成（CI 门禁 + 测试覆盖提升） |
 | 待填写 | 复测验证通过 |

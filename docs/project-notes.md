@@ -18,11 +18,11 @@
 | 目标场景 | 小型单店餐厅，日订单量 < 200 单 |
 | 人员特点 | 服务人员少，服务员/传菜员/老板常由同一人兼任 |
 | 生产地址 | http://43.143.169.88/ |
-| 管理员账号 | admin@restaurant.com / REDACTED_DEFAULT_PASSWORD |
+| 管理员账号 | admin@restaurant.com / *(请联系运维获取)* |
 | PocketBase Admin | http://43.143.169.88/_/ |
 
 ### 技术栈
-- **前端**: Vue 3.5 + Vite 8 + Vue Router 4 + Pinia 3 + Tailwind CSS v4 + TypeScript 6
+- **前端**: Vue 3.5 + Vite 8 + Vue Router 5 (预发布版，计划降级至 4.5.x) + Pinia 3 + Tailwind CSS v4 + TypeScript ~6.0
 - **后端**: PocketBase v0.22.27 (BaaS) + SQLite 3
 - **测试**: Vitest 4 (单元) + Playwright 1.58 (E2E)
 - **部署**: Nginx 1.24 + systemd + 一键部署脚本
@@ -103,7 +103,7 @@ interface Order {
   tableNo: string              // 桌号
   guests: number               // 用餐人数
   items: OrderItem[]           // 订单项数组 (JSON)
-  status: OrderStatus          // pending/cooking/serving/completed/cancelled
+  status: OrderStatus          // pending/cooking/serving/dining/completed/settled/cancelled
   totalAmount: number          // 订单总金额 (后端强制重算)
   discount: number             // 折扣金额
   finalAmount: number          // 实付金额 (后端强制重算)
@@ -347,7 +347,7 @@ deploy.sh:   NGINX_ROOT="/var/www/restaurant-pos"
 
 | 问题 | 严重程度 | 说明 |
 |------|----------|------|
-| 核心视图测试覆盖不足 | 🟡 P1 | View 级别单元测试从 6 个增加到 25 个，Functions 覆盖从 63% 提升到 66%，但 CustomerOrderView 仍只有 50% |
+| 核心视图测试覆盖不足 | 🟡 P1 | 视图单元测试已达 568 用例通过，CustomerOrderView 分支覆盖 50.78%，仍有提升空间 |
 | 文档债务严重 | 🟡 P1 | 根目录与 docs/ 混放、重复文档并存、命名不统一、无目录索引，共 26 个文件散落各处 |
 | 菜品模型过于简化 | 🟢 P3 | 已增加沽清状态，仍缺多规格、库存管理 |
 

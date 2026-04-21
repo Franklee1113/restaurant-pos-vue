@@ -55,7 +55,7 @@ VITE_PB_URL=/api
 
 ```env
 VITE_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
-VITE_APP_VERSION=1.0.2
+VITE_APP_VERSION=1.1.3
 ```
 
 > **注意**：Sentry 仅在 `import.meta.env.PROD` 为 true 时生效（即生产构建）。开发环境自动禁用。
@@ -193,9 +193,9 @@ sudo systemctl start pocketbase
 
 ## 四、旧系统平滑迁移方案
 
-访问 `http://<服务器IP>/login`，使用默认账号登录：
+访问 `http://<服务器IP>/login`，使用管理员账号登录：
 - 邮箱: `admin@restaurant.com`
-- 密码: `REDACTED_DEFAULT_PASSWORD`
+- 密码: *(请联系运维人员获取)*
 
 ---
 

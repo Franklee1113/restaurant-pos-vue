@@ -9,7 +9,7 @@
 ## 一、编码前准备
 
 ### 🟥 安全规范
-- [ ] 熟悉 `utils/security.js` 中的转义函数使用方法
+- [ ] 熟悉 `src/utils/security.ts` 中的转义函数使用方法
 - [ ] 了解当前页面的用户输入点（表单、URL参数、API返回）
 - [ ] 确认数据库权限规则已配置（`@request.auth.id != ''`）
 
@@ -110,14 +110,14 @@ try {
 
 ### 🟥 精度类 - 金额计算
 
-```javascript
+```typescript
 // ❌ 禁止 - 浮点数直接计算
 const total = items.reduce((sum, item) => 
   sum + item.price * item.quantity, 0);
 // 结果可能是 0.30000000000000004
 
 // ✅ 必须 - 使用 MoneyCalculator
-import { MoneyCalculator } from '../utils/security.js';
+import { MoneyCalculator } from '@/utils/security';
 const result = MoneyCalculator.calculate(items, discount);
 // 或使用整数分计算
 const totalCents = items.reduce((sum, item) => 
@@ -133,12 +133,12 @@ const total = totalCents / 100; // 精确结果
 ### 🟨 代码质量类 - 建议遵守
 
 #### 避免魔法字符串
-```javascript
+```typescript
 // ❌ 不好 - 魔法字符串
 if (status === 'cooking') { ... }
 
 // ✅ 好 - 使用常量
-import { OrderStatus } from '../constants/orderStatus.js';
+import { OrderStatus } from '@/constants';
 if (status === OrderStatus.COOKING) { ... }
 ```
 - [ ] 状态值使用 `OrderStatus` 枚举
@@ -146,16 +146,17 @@ if (status === OrderStatus.COOKING) { ... }
 - [ ] 错误码统一在 `constants/errors.js` 定义
 
 #### 工具函数复用
-```javascript
+```typescript
 // ❌ 不好 - 每个页面重复实现
-showToast(message, type) {
+function showToast(message: string, type: string) {
   const toast = document.createElement('div');
   // ... 重复代码
 }
 
-// ✅ 好 - 使用统一工具
-import { showToast } from '../utils/toast.js';
-showToast('操作成功', 'success');
+// ✅ 好 - 使用统一 composable
+import { useToast } from '@/composables/useToast';
+const { success } = useToast();
+success('操作成功');
 ```
 - [ ] Toast 提示使用 `utils/toast.js`
 - [ ] API 调用使用 `api/pocketbase.js` 封装方法
@@ -207,22 +208,22 @@ function validateOrder(order) {
 ### 🟥 代码检查
 ```bash
 # 1. 搜索危险代码（在项目根目录执行）
-grep -r "innerHTML.*\${" --include="*.js" src/ || echo "✅ 无危险 innerHTML"
-grep -r "\.addEventListener" --include="*.js" src/ | grep -v "signal" | grep -v "removeEventListener" || echo "✅ 事件监听都有 signal"
+grep -r "innerHTML.*\${" --include="*.ts" --include="*.vue" src/ || echo "✅ 无危险 innerHTML"
+grep -r "\.addEventListener" --include="*.ts" --include="*.vue" src/ | grep -v "signal" | grep -v "removeEventListener" || echo "✅ 事件监听都有 signal"
 
 # 2. 检查魔法字符串
-grep -r "=== 'pending'" --include="*.js" src/ || echo "✅ 无魔法字符串 pending"
-grep -r "=== 'cooking'" --include="*.js" src/ || echo "✅ 无魔法字符串 cooking"
+grep -r "=== 'pending'" --include="*.ts" --include="*.vue" src/ || echo "✅ 无魔法字符串 pending"
+grep -r "=== 'cooking'" --include="*.ts" --include="*.vue" src/ || echo "✅ 无魔法字符串 cooking"
 
 # 3. 检查金额计算
-grep -r "\.reduce.*price.*\*" --include="*.js" src/ || echo "✅ 使用 MoneyCalculator"
+grep -r "\.reduce.*price.*\*" --include="*.ts" --include="*.vue" src/ || echo "✅ 使用 MoneyCalculator"
 ```
 - [ ] 运行上述命令检查危险代码
 - [ ] 无 `console.log` 调试代码（生产环境）
 - [ ] 无注释掉的死代码
 
 ### 🟥 文件检查
-- [ ] 新增文件在正确目录（页面放 `pages/`，工具放 `utils/`）
+- [ ] 新增文件在正确目录（页面放 `views/`，工具放 `utils/`，组件放 `components/`）
 - [ ] 敏感配置未提交（API 密钥、数据库密码）
 - [ ] 数据库迁移文件已创建（如修改了集合结构）
 
@@ -268,19 +269,17 @@ grep -r "\.reduce.*price.*\*" --include="*.js" src/ || echo "✅ 使用 MoneyCal
 ## 六、快速参考卡
 
 ### 常用安全导入
-```javascript
+```typescript
 // 安全工具
-import { escapeHtml, MoneyCalculator, sanitizeInput } from '../utils/security.js';
+import { escapeHtml, MoneyCalculator, Validators } from '@/utils/security';
 
 // 常量
-import { OrderStatus, PaymentStatus } from '../constants/orderStatus.js';
-import { CutleryType } from '../schemas/order.schema.js';  // 餐具类型
-import { API_BASE } from '../config/api.js';
+import { OrderStatus, CollectionName } from '@/constants';
 
 // 工具
-import { showToast, showLoading, hideLoading } from '../utils/toast.js';
-import { debounce, throttle } from '../utils/debounce.js';
-import { fetchWithTimeout, APIError } from '../api/pocketbase.js';
+import { useToast } from '@/composables/useToast';
+import { useDebounce } from '@/composables/useDebounce';
+import { APIError } from '@/api/pocketbase';
 ```
 
 ### 组件模板
@@ -340,8 +339,8 @@ export class MyComponent {
 
 ---
 
-**清单版本**: v1.2  
-**最后更新**: 2026-04-14  
+**清单版本**: v1.7  
+**最后更新**: 2026-04-21  
 **适用范围**: 智能点菜系统前端开发
 
 ---
@@ -1045,7 +1044,7 @@ const orderSummary = computed(() => {
 
 ##### 根因分析
 1. **技术原因**：`pb_hooks/orders.pb.js` 的 `onRecordBeforeUpdateRequest` 只检测了 `itemsAppended`（追加），未检测 `itemsRemoved`（删除）
-2. **设计原因**：状态机设计聚焦于"正向流转"（pending→cooking→served），对"逆向操作"（删除已制作菜品）的业务规则未定义
+2. **设计原因**：状态机设计聚焦于"正向流转"（pending→cooking→serving→dining），对"逆向操作"（删除已制作菜品）的业务规则未定义
 3. **测试盲区**：单元测试和 E2E 均未覆盖"编辑时删除已上菜菜品"的场景
 
 ##### 修复方案
