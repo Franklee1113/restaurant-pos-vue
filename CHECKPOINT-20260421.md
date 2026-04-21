@@ -1,8 +1,15 @@
-# 检查点 — 2026-04-21 18:05 CST
+# 检查点 — 2026-04-21 23:55 CST
 
 ## 当前会话摘要
 
-本次会话完成了 E2E 测试修复、文档更新和生产部署。
+本次会话完成了 E2E 测试修复、文档更新、生产部署，以及**六阶段测试覆盖率补测**。
+
+### 新增工作（18:05 之后）
+- **Phase 1** (`f80c0de`)：`pb_hooks` 核心逻辑外迁至 `orderValidation.ts`（41 测试，100% 语句覆盖）+ CustomerOrderView / OrderFormView 交互测试补充
+- **Phase 2** (`9cc6a46`)：OrderListView Functions 63.09% → 77.38%（+38 测试）+ `pocketbase.ts` Branch 65.94% → 75.67%（+18 测试）
+- **Phase 3** (`ce46a31`)：CustomerOrderView Branch 52.97% → 84.63%（+14 测试）
+- **文档更新**：`TEST_COVERAGE_REPORT.md` 终版数据修正、`CHANGELOG.md` 新增测试章节
+- **生产部署验证**：确认生产环境已包含 `b2e566c` 及之前所有修复（通过构建产物比对）
 
 ---
 
@@ -100,13 +107,13 @@ node dist/index.js (PID 37631, /var/www/restaurant-pos-vue/server)
 2. **编辑订单未覆盖 E2E**：`/edit-order/:id` 无端到端测试
 3. **蓝牙打印未覆盖**：`useBluetoothPrinter` 未在 E2E 中测试
 
-### 中风险优化项（已制定方案，待执行）
+### 中风险优化项（已制定方案，部分已达成）
 详见 `docs/OPTIMIZATION_PLAN_20250421.md`
 
 4. **CI 中 ESLint 被注释**：`.github/workflows/ci.yml` 第 49-51 行 ESLint 步骤被注释，代码风格无 CI 门禁。需修复 `eslint.config.js` 的 `pb_hooks/` 和 `public/sw.js` 全局变量配置后恢复。
-5. **`views/` 单元测试覆盖率偏低**：分支 66.71%，函数 63.14%。顾客端支付/加菜、订单列表筛选/清台/打印、表单搜索/预览等路径未覆盖。
+5. **`views/` 单元测试覆盖率**：分支 **77.08%** ✅（已达 75% 目标），函数 **71.74%**（距 75% 目标差 3.26%，主要缺口：OrderFormView 62.19%、SettingsView 54.71%）。
 6. **缺少覆盖率阈值门禁**：`vitest.config.ts` 无 `coverage.thresholds`，覆盖率可下滑。建议 thresholds: statements 80, branches 70, functions 70, lines 85。
-7. **`api/` 分支覆盖率 72.41%**：`pocketbase.ts` 网络异常（HTTP 500/403/超时）和 SSE 降级分支未覆盖。
+7. **`api/` 分支覆盖率 76.84%**：`pocketbase.ts` 网络异常（HTTP 500/403/超时）和 SSE 降级分支未覆盖。距 80% 目标差 3.16%。
 
 ### 前端类型检查
 8. **前端类型检查残留**：`vue-tsc` 已通过（本次修复了测试文件类型错误）
@@ -130,14 +137,24 @@ sudo systemctl reload nginx
 ## Git 状态
 
 ```
-当前 commit: b2e566c
-docs: 文档治理 + E2E 测试补全 + README 重写（2026-04-21）
+当前 commit: ce46a31 (HEAD -> main)
+test: CustomerOrderView 分支覆盖提升 52.97% → 84.63%
 
-修改: README.md, playwright/.auth/user.json,
-      src/composables/__tests__/useClearTable.spec.ts,
-      src/views/__tests__/OrderFormView.spec.ts
+今日提交:
+- ce46a31 test: CustomerOrderView 分支覆盖提升 52.97% → 84.63%
+- 9cc6a46 test: Phase 2 覆盖率提升 - OrderListView Functions + pocketbase.ts Branch
+- f80c0de test: 第一阶段覆盖率提升 - pb_hooks核心逻辑外迁 + Views交互测试补充
+- b2e566c docs: 文档治理 + E2E 测试补全 + README 重写（2026-04-21）
+- 9d0ee94 fix: generate accessToken for all orders in pb_hooks
+- 97b698a fix: 业务逻辑全面治理 (BUG-GOV-001~008)
 
-未跟踪: AGENTS.md
+修改（工作区）: README.md, docs/ARCHITECTURE_REVIEW.md, docs/ARCHITECTURE_ROADMAP_20250421.md,
+      docs/BUSINESS_PROCESS_FLOW.md, docs/CODE_AUDIT_REPORT.md, docs/CODE_CHECKLIST.md,
+      docs/DEPLOYMENT_GUIDE.md, docs/SECURITY.md, docs/TEST_COVERAGE_REPORT.md,
+      docs/feature-checklist.md, docs/project-notes.md, docs/智能点菜系统-详细设计说明书.md,
+      playwright/.auth/user.json
+
+未跟踪: AGENTS.md, CHECKPOINT-20260421.md, docs/OPTIMIZATION_PLAN_20250421.md
 ```
 
 ---

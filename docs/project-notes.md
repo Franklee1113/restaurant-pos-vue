@@ -238,6 +238,25 @@ interface Settings {
 
 ### 改造 G: 沽清功能完整实施 (2026-04-20)
 - **内容**: 菜品实时沽清标记与多端同步，防止已沽清菜品被下单
+
+### 改造 H: 测试覆盖率六阶段补测 (2026-04-21)
+- **内容**: 系统性提升单元测试覆盖率，从基线 72.14% / 61.35% / ~65% 提升至 88.77% / 79.34% / 80.5%（Statements / Branch / Functions），新增 200+ 测试用例
+- **关键动作**:
+  - `orderValidation.ts` 从 `pb_hooks/orders.pb.js` 提取核心业务逻辑（金额重算、状态推断、追加/删除检测、流转校验），实现 100% 语句覆盖、91.52% 分支覆盖
+  - `CustomerOrderView.vue` Branch 52.97% → 84.63%（+14 测试：模板分支+脚本边界+DOM 交互）
+  - `OrderListView.vue` Functions 63.09% → 77.38%（+38 测试：筛选、清台、自动刷新音效、DOM 交互、分页、SoldOutDrawer）
+  - `pocketbase.ts` Branch 65.94% → 75.67%（+18 测试：网络异常、SSE 单例、HTTP 500/403 处理）
+  - `OrderFormView.vue` Stmts 57% → 78.54%（+21 测试：铁锅鱼自动加锅底、submit 成功/失败、折扣校验、触摸事件）
+- **测试过程中发现的产品缺陷**:
+  - BUG-FIX-001: `OrderFormView.vue` percent 折扣校验逻辑错位（`>10` 非法值可被提交）
+  - BUG-FIX-002: `pocketbase.ts` HTTP 500 空响应体时错误消息显示为 `undefined`
+  - `DialogModal.vue` `typeClass` 未用 `computed()` 包裹导致响应式失效
+  - `CustomerOrderView.vue` 会话恢复后未关闭人数选择弹窗；`dining` 状态被误判为已结束
+- **涉及文件**:
+  - 新增: `src/utils/orderValidation.ts`, `src/utils/__tests__/orderValidation.spec.ts`
+  - 修改测试: `src/views/__tests__/CustomerOrderView.spec.ts` (+46), `src/views/__tests__/OrderFormView.spec.ts` (+21), `src/views/__tests__/OrderListView.spec.ts` (+38), `src/api/__tests__/pocketbase.spec.ts` (+18)
+  - 修复产品代码: `src/views/OrderFormView.vue`, `src/views/CustomerOrderView.vue`, `src/api/pocketbase.ts`, `src/components/DialogModal.vue`
+- **产出文档**: `docs/TEST_COVERAGE_REPORT.md` v3.0（六阶段补测完成）
 - **原因**: 营业高峰期菜品临时售罄，需要实时告知员工和顾客，避免无效下单
 - **涉及文件**:
   - `pb_migrations/1776652288_add_soldOut_to_dishes.js` (新增)
@@ -553,9 +572,18 @@ sudo nginx -t && sudo systemctl reload nginx
 | 2026-04-21 | 更新 project-notes / CODE_CHECKLIST.md / 设计说明书 | ✅ 已完成 |
 | 2026-04-21 | Git commit: 947025c — 业务逻辑全面治理 | ✅ 已提交 |
 | 2026-04-21 | 生产部署: v1.0.2-20260421-101324 | ✅ 已上线 |
+| 2026-04-21 | E2E 测试修复与部署（9 个 E2E 文件全部通过） | ✅ 已完成 |
+| 2026-04-21 | 文档治理：`AGENTS.md`、README 重写、过时文档清理 | ✅ 已完成 |
+| 2026-04-21 | Git commit: b2e566c — 文档治理 + E2E 补全 | ✅ 已提交 |
+| 2026-04-21 | 测试 Phase 1：`orderValidation.ts` 外迁 + Views 交互测试 | ✅ 582 测试通过 |
+| 2026-04-21 | 测试 Phase 2：OrderListView Functions + pocketbase.ts Branch | ✅ 覆盖率 87.91% / 74.91% |
+| 2026-04-21 | 测试 Phase 3：CustomerOrderView Branch 52.97% → 84.63% | ✅ 覆盖率 88.77% / 79.34% |
+| 2026-04-21 | Git commit: ce46a31 — 测试覆盖率六阶段补测完成 | ✅ 已提交 |
+| 2026-04-21 | 生产部署验证：确认生产环境包含 b2e566c 及之前所有修复 | ✅ 已验证 |
+| 2026-04-21 | 更新 `TEST_COVERAGE_REPORT.md` / `CHANGELOG.md` / `CHECKPOINT` | ✅ 已完成 |
 
 ---
 
-**文档版本**: v1.8  
+**文档版本**: v1.9  
 **最后更新人**: Kimi  
 **更新日期**: 2026-04-21

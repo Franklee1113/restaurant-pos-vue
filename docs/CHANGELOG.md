@@ -13,6 +13,18 @@
 ### 改进（交互体验）
 - **清台按钮条件渲染**：`OrderDetailView.vue` / `OrderListView.vue` 清台按钮仅对 `COMPLETED` 状态订单显示；`pendingTableNumbers` 快捷标签旁移除冗余清台按钮，避免对未完成订单误操作
 
+### 测试（覆盖率提升 — 六阶段补测完成）
+- **第一阶段** (`f80c0de`)：`pb_hooks/orders.pb.js` 核心逻辑外迁至 `src/utils/orderValidation.ts`（212 行，41 个测试，100% 语句覆盖），提取金额重算、状态推断、追加/删除检测、流转校验等纯函数；`CustomerOrderView.spec.ts` +8 用例（refreshDishes、桌台已完成订单提示、addExistingToCart、onDishesScroll、scrollToTop、人数弹窗、追加失败）；`OrderFormView.spec.ts` +11 用例（setupDishesRealtime、触摸事件、右键菜单、购物车弹跳、loadData 异常、编辑模式无 cutlery 兼容）
+- **第二阶段** (`9cc6a46`)：`OrderListView.vue` Functions 63.09% → 77.38%（+38 个测试：formatDate、buildFilterString、silentRefresh 音频、exportExcel、DOM 交互、分页、SoldOutDrawer、移动端按钮）；`pocketbase.ts` Branch 65.94% → 75.67%（+18 个测试：fetchWithTimeout 超时/网络错误、handleResponse JSON.parse 失败、StatsAPI 404 回退、SSE 单例清理、PublicOrderAPI sold-out 验证、DishAPI CRUD）
+- **第三阶段** (`ce46a31`)：`CustomerOrderView.vue` Branch 52.97% → 84.63%（+14 个测试：铁锅鱼标签/按斤计价、soldOut 状态、空分类、购物车 modal 三种状态、已下单菜品状态标签、再来一份、loadData/refreshDishes/refreshOrder catch、submitOrder 追加会话过期阻断、无餐具费 free 类型、sortedDishes 铁锅鱼置顶、getTableStatus 失败继续加载）
+- **产品缺陷修复（测试过程中发现）**：
+  - BUG-FIX-001：`OrderFormView.vue` percent 折扣范围检查在 `safeParse` 通过后独立执行，修复 `>10` 非法值可被提交的问题
+  - BUG-FIX-002：`pocketbase.ts` `handleResponse` 修复 HTTP 500 空响应体时错误消息显示为 `undefined` 的问题（`errorJson?.message` 空安全访问 + `statusText` 条件拼接）
+  - `DialogModal.vue`：`typeClass` 改用 `computed()` 包裹，修复响应式更新失效
+  - `CustomerOrderView.vue`：会话恢复和自动加入订单后关闭 `showGuestSetup` 弹窗；`dining` 状态订单不再被误判为已结束
+- **类型检查修复**：`useClearTable.spec.ts` `mockResolvedValue(undefined)` → `mockResolvedValue({} as any)`；`@ts-ignore` → `@ts-expect-error` 符合 ESLint 规范
+- **最终覆盖率**：Statements 88.77% / Branch 79.34% / Functions 80.5% / Lines 90.71%；30 个测试文件、582 个用例通过、2 个 skipped（jsdom 限制）、0 失败
+
 ## [1.1.3] - 2026-04-21
 
 ### 修复（业务逻辑一致性）
