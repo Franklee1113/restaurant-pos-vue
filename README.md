@@ -209,7 +209,7 @@ docker compose up -d --build
 
 ## 测试状态
 
-- **单元测试**: 568 个通过，2 个跳过 ✅ (`npm run test:unit`)
+- **单元测试**: 600 个通过，2 个跳过 ✅ (`npm run test:unit`)
 - **E2E 测试**: 27 个通过，2 个条件跳过 ✅ (`npx playwright test`)
   - 覆盖：登录、扫码点餐完整链路、清台联动、沽清同步、厨房大屏、订单核心流程、菜品维护、系统设置
 
@@ -223,10 +223,10 @@ docker compose up -d --build
 | 桌台占用检查 | 新建订单前检查桌台是否为 `dining`，占用时阻断 |
 | completed 不可追加 | `completed`/`cancelled`/`settled` 订单禁止顾客追加菜品 |
 | 清台联动 | 清台后订单变为 `settled`，桌台变为 `idle` |
-| dining 追加保持 | dining 状态追加菜品，新项状态为 `pending`，旧项不变 |
+| dining 追加保持 | dining 状态追加菜品，订单状态保持 `dining`，新增菜品为 `pending` |
 
 ---
 
-**版本**: 1.0.2  
+**版本**: 1.1.3  
 **重构日期**: 2026-04-13  
 **最后更新**: 2026-04-21

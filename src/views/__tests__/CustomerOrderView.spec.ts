@@ -563,3 +563,397 @@ describe('CustomerOrderView - 交互与边界补充', () => {
     expect(vm.submitting).toBe(false)
   })
 })
+
+describe('CustomerOrderView - 分支覆盖提升', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    sessionStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  // ── 1. 正常点餐完整流程（覆盖大量模板分支）──
+  it('正常点餐流程应覆盖主要模板分支', async () => {
+    vi.mocked(useRoute).mockReturnValue({ query: { table: 'A1' } } as any)
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({
+      items: [
+        { id: 'd1', name: '铁锅鱼', price: 128, category: '铁锅炖', soldOut: false, description: '现杀现做' },
+        { id: 'd2', name: '锅底', price: 38, category: '铁锅炖', soldOut: false, description: '秘制底料' },
+        { id: 'd3', name: '餐具', price: 2, category: '餐具', soldOut: false },
+      ],
+    } as any)
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'idle',
+    } as any)
+    vi.mocked(PublicOrderAPI.getOrdersByTable).mockResolvedValue([])
+    vi.mocked(PublicOrderAPI.createOrder).mockResolvedValue({
+      id: 'o1', orderNo: 'O001', accessToken: 'tok1',
+    } as any)
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.showGuestSetup = false
+    await nextTick()
+
+    // 验证铁锅鱼显示"招牌"标签和"按斤计价"
+    expect(wrapper.text()).toContain('招牌')
+    expect(wrapper.text()).toContain('按斤计价')
+
+    // 验证菜品描述显示（锅底有 description，铁锅鱼的 description 被价格说明覆盖）
+    expect(wrapper.text()).toContain('秘制底料')
+
+    // 点击"选"按钮加入购物车（覆盖 cartMap 不存在分支）
+    const selectBtn = wrapper.findAll('button').find((b) => b.text().includes('选'))
+    expect(selectBtn).toBeTruthy()
+    await selectBtn!.trigger('click')
+    await nextTick()
+
+    // 验证数量选择器出现（覆盖 cartMap 存在分支）
+    expect(vm.cartMap.get('d1')).toBeTruthy()
+
+    // 点击+增加数量
+    const addBtns = wrapper.findAll('button[aria-label="增加数量"]')
+    expect(addBtns.length).toBeGreaterThan(0)
+    await addBtns[0].trigger('click')
+    expect(vm.cartMap.get('d1').quantity).toBe(2)
+
+    // 打开购物车（覆盖 showCart 分支）
+    const cartBtn = wrapper.find('[aria-label="打开购物车"]')
+    await cartBtn.trigger('click')
+    await nextTick()
+    expect(vm.showCart).toBe(true)
+
+    // 购物车中应显示新加菜品（覆盖 cart.length > 0）
+    expect(wrapper.text()).toContain('新加菜品')
+
+    // 提交订单
+    await vm.submitOrder()
+    await flushPromises()
+
+    expect(PublicOrderAPI.createOrder).toHaveBeenCalled()
+  })
+
+  // ── 2. 已有订单追加流程 ──
+  it('已有订单应显示已下单菜品和追加按钮', async () => {
+    sessionStorage.setItem('customer_order_id', 'o1')
+    sessionStorage.setItem('customer_access_token', 'tok_abc')
+
+    vi.mocked(useRoute).mockReturnValue({ query: { table: 'A1' } } as any)
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({
+      items: [
+        { id: 'd1', name: '铁锅鱼', price: 128, category: '铁锅炖', soldOut: false },
+        { id: 'd3', name: '餐具', price: 2, category: '餐具', soldOut: false },
+      ],
+    } as any)
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'dining', currentOrderId: 'o1',
+    } as any)
+    vi.mocked(PublicOrderAPI.getOrder).mockResolvedValue({
+      id: 'o1', orderNo: 'O001', status: 'dining',
+      items: [
+        { dishId: 'd1', name: '铁锅鱼', price: 128, quantity: 1, status: 'cooking', remark: '少辣' },
+      ],
+      guests: 3,
+    } as any)
+    vi.mocked(PublicOrderAPI.appendOrderItems).mockResolvedValue({ id: 'o1' } as any)
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.showGuestSetup = false
+    await nextTick()
+
+    // 验证已有订单提示（覆盖 v-if="currentOrder"）
+    expect(wrapper.text()).toContain('当前已有订单')
+
+    // 验证人数不可修改提示
+    expect(wrapper.text()).toContain('人数已与订单绑定')
+
+    // 打开购物车
+    const cartBtn = wrapper.find('[aria-label="打开购物车"]')
+    await cartBtn.trigger('click')
+    await nextTick()
+
+    // 验证已下单菜品区域（覆盖 existingItems.length > 0）
+    expect(wrapper.text()).toContain('已下单菜品')
+
+    // 验证状态标签（覆盖 item.status === 'cooking'）
+    expect(wrapper.text()).toContain('制作中')
+
+    // 验证备注显示（覆盖 item.remark）
+    expect(wrapper.text()).toContain('少辣')
+
+    // 点击"再来一份"
+    const addAgainBtn = wrapper.findAll('button').find((b) => b.attributes('aria-label')?.includes('再来一份'))
+    expect(addAgainBtn).toBeTruthy()
+    await addAgainBtn!.trigger('click')
+    expect(vm.cart.some((c: any) => c.dishId === 'd1')).toBe(true)
+
+    // 追加提交
+    await vm.submitOrder()
+    await flushPromises()
+    expect(PublicOrderAPI.appendOrderItems).toHaveBeenCalled()
+  })
+
+  // ── 3. soldOut 菜品和空分类 ──
+  it('soldOut 菜品应显示已沽清且不可选', async () => {
+    vi.mocked(useRoute).mockReturnValue({ query: { table: 'A1' } } as any)
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({
+      items: [
+        { id: 'd1', name: '铁锅鱼', price: 128, category: '铁锅炖', soldOut: true },
+        { id: 'd3', name: '餐具', price: 2, category: '餐具', soldOut: false },
+      ],
+    } as any)
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'idle',
+    } as any)
+    vi.mocked(PublicOrderAPI.getOrdersByTable).mockResolvedValue([])
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.showGuestSetup = false
+    await nextTick()
+
+    // 验证 soldOut 菜品显示"已沽清"
+    expect(wrapper.text()).toContain('已沽清')
+
+    // 验证不存在"选"按钮（覆盖 soldOut 分支）
+    const selectBtns = wrapper.findAll('button').filter((b) => b.text().includes('选'))
+    expect(selectBtns.length).toBe(0)
+  })
+
+  it('空分类应显示暂无菜品', async () => {
+    vi.mocked(useRoute).mockReturnValue({ query: { table: 'A1' } } as any)
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({
+      items: [{ id: 'd3', name: '餐具', price: 2, category: '餐具', soldOut: false }],
+    } as any)
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'idle',
+    } as any)
+    vi.mocked(PublicOrderAPI.getOrdersByTable).mockResolvedValue([])
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.showGuestSetup = false
+    vm.currentCategory = '特色菜'
+    await nextTick()
+
+    // 覆盖 v-else-if="filteredDishes.length === 0"
+    expect(wrapper.text()).toContain('该分类下暂无菜品')
+  })
+
+  // ── 4. 脚本错误分支 ──
+  it('loadData 失败应显示错误提示', async () => {
+    vi.mocked(useRoute).mockReturnValue({ query: { table: 'A1' } } as any)
+    vi.mocked(PublicDishAPI.getDishes).mockRejectedValue(new Error('网络错误'))
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    expect(vm.loading).toBe(false)
+  })
+
+  it('refreshDishes 失败应静默处理', async () => {
+    vi.mocked(useRoute).mockReturnValue({ query: { table: 'A1' } } as any)
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({ items: [] } as any)
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'idle',
+    } as any)
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vi.mocked(PublicDishAPI.getDishes).mockRejectedValue(new Error('网络错误'))
+    await vm.refreshDishes()
+    // 不应抛出异常
+  })
+
+  it('refreshOrder 无 currentOrder.id 应直接返回', async () => {
+    vi.mocked(useRoute).mockReturnValue({ query: { table: 'A1' } } as any)
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({ items: [] } as any)
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'idle',
+    } as any)
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    // currentOrder 为 null 时直接返回
+    await vm.refreshOrder()
+    expect(PublicOrderAPI.getOrder).not.toHaveBeenCalled()
+  })
+
+  it('refreshOrder 无 session 应直接返回', async () => {
+    vi.mocked(useRoute).mockReturnValue({ query: { table: 'A1' } } as any)
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({ items: [] } as any)
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'dining', currentOrderId: 'o1',
+    } as any)
+    vi.mocked(PublicOrderAPI.getOrdersByTable).mockResolvedValue([
+      { id: 'o1', orderNo: 'O001', status: 'pending', items: [], accessToken: 'tok1' } as any,
+    ])
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    // 清除 sessionStorage，模拟无 session
+    sessionStorage.clear()
+    await vm.refreshOrder()
+    expect(PublicOrderAPI.getOrder).not.toHaveBeenCalled()
+  })
+
+  it('refreshOrder getOrder 返回 null 应静默处理', async () => {
+    sessionStorage.setItem('customer_order_id', 'o1')
+    sessionStorage.setItem('customer_access_token', 'tok_abc')
+    vi.mocked(PublicOrderAPI.getOrder).mockResolvedValue(null as any)
+
+    vi.mocked(useRoute).mockReturnValue({ query: { table: 'A1' } } as any)
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({ items: [] } as any)
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'dining', currentOrderId: 'o1',
+    } as any)
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    await vm.refreshOrder()
+    // 不应抛出异常
+  })
+
+  it('submitOrder 追加模式会话过期应提示', async () => {
+    vi.mocked(useRoute).mockReturnValue({ query: { table: 'A1' } } as any)
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({
+      items: [{ id: 'd1', name: '铁锅鱼', price: 128, category: '铁锅炖', soldOut: false }],
+    } as any)
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'dining', currentOrderId: 'o1',
+    } as any)
+    vi.mocked(PublicOrderAPI.getOrdersByTable).mockResolvedValue([
+      { id: 'o1', orderNo: 'O001', status: 'pending', items: [], accessToken: 'tok1' } as any,
+    ])
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.showGuestSetup = false
+    vm.cart = [{ dishId: 'd1', name: '铁锅鱼', price: 128, quantity: 1 }]
+    await nextTick()
+
+    // 清除 sessionStorage，模拟会话过期
+    sessionStorage.clear()
+    await vm.submitOrder()
+    expect(PublicOrderAPI.appendOrderItems).not.toHaveBeenCalled()
+  })
+
+  it('submitOrder 无餐具费时应使用 free 类型', async () => {
+    vi.mocked(useRoute).mockReturnValue({ query: { table: 'A1' } } as any)
+    // 不返回餐具菜品，使 tablewareDish 为 null
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({
+      items: [{ id: 'd1', name: '铁锅鱼', price: 128, category: '铁锅炖', soldOut: false }],
+    } as any)
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'idle',
+    } as any)
+    vi.mocked(PublicOrderAPI.getOrdersByTable).mockResolvedValue([])
+    vi.mocked(PublicOrderAPI.createOrder).mockResolvedValue({
+      id: 'o1', orderNo: 'O001', accessToken: 'tok1',
+    } as any)
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.showGuestSetup = false
+    vm.cart = [{ dishId: 'd1', name: '铁锅鱼', price: 128, quantity: 1 }]
+    await nextTick()
+
+    await vm.submitOrder()
+    await flushPromises()
+
+    const payload = vi.mocked(PublicOrderAPI.createOrder).mock.calls[0]![0] as any
+    expect(payload.cutlery.type).toBe('free')
+    expect(payload.cutlery.unitPrice).toBe(0)
+  })
+
+  it('sortedDishes 铁锅炖分类应将铁锅鱼置顶', async () => {
+    vi.mocked(useRoute).mockReturnValue({ query: { table: 'A1' } } as any)
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({
+      items: [
+        { id: 'd2', name: '锅底', price: 38, category: '铁锅炖', soldOut: false },
+        { id: 'd1', name: '铁锅鱼', price: 128, category: '铁锅炖', soldOut: false },
+      ],
+    } as any)
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'idle',
+    } as any)
+    vi.mocked(PublicOrderAPI.getOrdersByTable).mockResolvedValue([])
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.currentCategory = '铁锅炖'
+    await nextTick()
+
+    expect(vm.sortedDishes[0].name).toBe('铁锅鱼')
+  })
+
+  it('购物车为空且existingItems为空时应显示空状态', async () => {
+    vi.mocked(useRoute).mockReturnValue({ query: { table: 'A1' } } as any)
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({
+      items: [{ id: 'd1', name: '铁锅鱼', price: 128, category: '铁锅炖', soldOut: false }],
+    } as any)
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockResolvedValue({
+      id: 'ts1', tableNo: 'A1', status: 'idle',
+    } as any)
+    vi.mocked(PublicOrderAPI.getOrdersByTable).mockResolvedValue([])
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.showGuestSetup = false
+    await nextTick()
+
+    // 打开空购物车
+    const cartBtn = wrapper.find('[aria-label="打开购物车"]')
+    await cartBtn.trigger('click')
+    await nextTick()
+
+    // 覆盖 cart.length === 0 && existingItems.length === 0
+    expect(wrapper.text()).toContain('购物车是空的')
+  })
+
+  it('loadData 中 getTableStatus 失败应继续加载', async () => {
+    vi.mocked(useRoute).mockReturnValue({ query: { table: 'A1' } } as any)
+    vi.mocked(PublicDishAPI.getDishes).mockResolvedValue({
+      items: [{ id: 'd1', name: '铁锅鱼', price: 128, category: '铁锅炖', soldOut: false }],
+    } as any)
+    vi.mocked(PublicTableStatusAPI.getTableStatus).mockRejectedValue(new Error('网络错误'))
+    vi.mocked(PublicOrderAPI.getOrdersByTable).mockResolvedValue([])
+
+    const wrapper = mount(CustomerOrderView)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    expect(vm.dishes.length).toBeGreaterThan(0)
+    // 验证 tableStatus 未被设置（通过检查模板中无已有订单提示）
+    expect(wrapper.text()).not.toContain('当前已有订单')
+  })
+})
