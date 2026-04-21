@@ -459,7 +459,15 @@ const statusFilters = [
 
 在 `OrderDetailView` 中，如果订单是 `dining` 状态，按钮显示"结账并清台"，点击后同时完成 `dining→completed→settled` 和清台，减少一步操作。
 
-**实施优先级**：🟢 **方案 A 本月实施**，方案 B/C 排期到桌台可视化迭代。
+**方案 D（追加）：清台按钮条件渲染 ✅ 已实施**
+
+在 `OrderDetailView` 和 `OrderListView` 中，清台按钮添加 `v-if="order.status === OrderStatus.COMPLETED"`：
+- `COMPLETED` 状态 → 显示「清台」按钮
+- `pending`/`cooking`/`serving`/`dining`/`settled`/`cancelled` → 不显示清台按钮
+
+同时移除 `OrderListView` 中 `pendingTableNumbers` 快捷标签旁的「清台」小按钮（该区域本身只展示 pending/cooking 状态的桌号，永远不应清台）。
+
+**实施优先级**：🟢 **方案 A + D 已实施**，方案 B/C 排期到桌台可视化迭代。
 
 ---
 
@@ -480,7 +488,7 @@ const statusFilters = [
 |------|------|--------|---------|
 | 🟡-3 | 追加菜品确认弹窗 + 成功提示 | 前端 | dining/serving 追加时弹窗确认 |
 | 🟡-4 | 顾客端接入 SSE 实时沽清 | 前端 | 菜品沽清变更秒级同步到顾客端 |
-| 🟢-1 | 订单列表增加"待清台"筛选 | 前端 | 可筛选 completed 订单 |
+| 🟢-1 | 订单列表增加"待清台"筛选 + 清台按钮条件渲染 | 前端 | 可筛选 completed 订单；非 completed 状态不显示清台按钮 |
 
 ### 第三阶段：建立防退化机制（本月内）
 

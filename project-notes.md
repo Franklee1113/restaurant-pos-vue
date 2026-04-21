@@ -366,6 +366,7 @@ deploy.sh:   NGINX_ROOT="/var/www/restaurant-pos"
 | dining 追加重置为 pending | 🟡 P1 | 移除后端 Hook 重置逻辑，dining 订单追加菜品保持 dining | 2026-04-21 |
 | 金额测试覆盖不足 | 🟢 P2 | `security.spec.ts` 补充 17 个 MoneyCalculator 边界测试 | 2026-04-21 |
 | completed 清台路径不直观 | 🟢 P2 | 订单列表快捷筛选按钮 `COMPLETED` 显示「待清台」+ 琥珀色标识 | 2026-04-21 |
+| 清台按钮对未完成订单可见 | 🟢 P2 | 清台按钮添加 `v-if` 条件渲染，仅 `COMPLETED` 状态显示；`pendingTableNumbers` 区域移除冗余清台按钮 | 2026-04-21 |
 
 ---
 

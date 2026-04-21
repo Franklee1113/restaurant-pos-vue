@@ -198,13 +198,13 @@ flowchart LR
     end
 
     subgraph 可操作
-        OP1[编辑✅ 删除✅ 打印✅<br/>状态流转→cooking  →cancelled<br/>修改单品✅ 清台❌]
-        OP2[编辑✅ 删除✅ 打印✅<br/>状态流转→serving  →cancelled<br/>修改单品✅ 清台❌]
-        OP3[编辑✅ 删除✅ 打印✅<br/>状态流转→dining  →cancelled<br/>修改单品✅ 清台❌]
-        OP4[编辑✅ 删除✅ 打印✅<br/>状态流转→completed  →cancelled<br/>修改单品✅ 清台❌]
-        OP5[编辑❌ 删除✅ 打印✅<br/>状态流转→settled<br/>修改单品❌ 清台✅]
-        OP6[编辑❌ 删除✅ 打印✅<br/>无流转按钮<br/>修改单品❌ 清台❌]
-        OP7[编辑❌ 删除✅ 打印✅<br/>无流转按钮<br/>修改单品❌ 清台❌]
+        OP1[编辑✅ 删除✅ 打印✅<br/>状态流转→cooking  →cancelled<br/>修改单品✅ 清台按钮❌]
+        OP2[编辑✅ 删除✅ 打印✅<br/>状态流转→serving  →cancelled<br/>修改单品✅ 清台按钮❌]
+        OP3[编辑✅ 删除✅ 打印✅<br/>状态流转→dining  →cancelled<br/>修改单品✅ 清台按钮❌]
+        OP4[编辑✅ 删除✅ 打印✅<br/>状态流转→completed  →cancelled<br/>修改单品✅ 清台按钮❌]
+        OP5[编辑❌ 删除✅ 打印✅<br/>状态流转→settled<br/>修改单品❌ 清台按钮✅]
+        OP6[编辑❌ 删除✅ 打印✅<br/>无流转按钮<br/>修改单品❌ 清台按钮❌]
+        OP7[编辑❌ 删除✅ 打印✅<br/>无流转按钮<br/>修改单品❌ 清台按钮❌]
     end
 ```
 
@@ -225,13 +225,13 @@ flowchart TD
     ErrC --> End3
 
     Check3 -->|status === completed| Sync[先更新订单状态<br/>completed → settled]
-    Check3 -->|订单查询失败| Allow1[⚠️ 兜底:<br/>静默允许清台]
+    Check3 -->|订单查询失败| ErrD[提示:<br/>无法确认订单状态<br/>请检查网络后重试]
     Check3 -->|无绑定订单| Direct[直接清台]
 
-    Sync -->|更新失败| Allow2[⚠️ 兜底:<br/>静默继续清台]
+    Sync -->|更新失败| ErrE[提示:<br/>订单状态更新失败<br/>请稍后重试]
     Sync -->|更新成功| Direct
-    Allow1 --> Direct
-    Allow2 --> Direct
+    ErrD --> End3
+    ErrE --> End3
 
     Direct --> Confirm[弹窗二次确认:<br/>确认此桌已结账完毕？]
     Confirm -->|取消| End3
