@@ -13,6 +13,11 @@ onRecordBeforeCreateRequest(
     try {
       const record = e.record
 
+      // 为所有新订单生成 accessToken（支持服务员创建订单后顾客扫码加菜）
+      if (!record.get('accessToken')) {
+        record.set('accessToken', $security.randomString(43))
+      }
+
       // 内联：解析 JSON 字段（PB VM 中返回 []byte）
       function parseJSONField(record, fieldName, defaultValue) {
         try {

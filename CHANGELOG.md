@@ -7,6 +7,9 @@
 
 ## [Unreleased]
 
+### 修复（业务逻辑一致性）
+- **顾客无法给服务员创建的订单加菜（P1）**：`pb_hooks/orders.pb.js` 在 `onRecordBeforeCreateRequest` 中为**所有新订单**生成 `accessToken`（`$security.randomString(43)`），消除顾客端/员工端订单创建的双轨制差异。服务员建单后顾客扫码即可正常追加菜品
+
 ### 改进（交互体验）
 - **清台按钮条件渲染**：`OrderDetailView.vue` / `OrderListView.vue` 清台按钮仅对 `COMPLETED` 状态订单显示；`pendingTableNumbers` 快捷标签旁移除冗余清台按钮，避免对未完成订单误操作
 

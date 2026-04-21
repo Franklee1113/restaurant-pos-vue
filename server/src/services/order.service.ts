@@ -145,7 +145,8 @@ export class OrderService {
 
   /**
    * 根据桌号获取当前未完成订单
-   * 注意：此方法不返回 accessToken（用于页面初始化时检查桌台状态）
+   * 返回包含 accessToken（2026-04-21: 后端 Hook 已为所有订单统一生成 accessToken，
+   * 顾客扫码后需要 accessToken 创建 CustomerSession 以支持追加菜品）
    */
   static async getByTableNo(tableNo: string): Promise<OrderResult | null> {
     const pb = getPocketBase()

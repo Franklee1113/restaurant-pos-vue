@@ -367,6 +367,7 @@ deploy.sh:   NGINX_ROOT="/var/www/restaurant-pos"
 | 金额测试覆盖不足 | 🟢 P2 | `security.spec.ts` 补充 17 个 MoneyCalculator 边界测试 | 2026-04-21 |
 | completed 清台路径不直观 | 🟢 P2 | 订单列表快捷筛选按钮 `COMPLETED` 显示「待清台」+ 琥珀色标识 | 2026-04-21 |
 | 清台按钮对未完成订单可见 | 🟢 P2 | 清台按钮添加 `v-if` 条件渲染，仅 `COMPLETED` 状态显示；`pendingTableNumbers` 区域移除冗余清台按钮 | 2026-04-21 |
+| 顾客无法给服务员创建的订单加菜 | 🟡 P1 | `pb_hooks/orders.pb.js` 统一为所有新订单生成 `accessToken`，消除顾客端/员工端双轨制差异 | 2026-04-21 |
 
 ---
 

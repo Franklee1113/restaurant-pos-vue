@@ -92,7 +92,7 @@ export const PublicTableStatusAPI = {
 export const PublicOrderAPI = {
   /**
    * 按桌号查询当前未完成订单
-   * 注意：此方法不返回 accessToken（用于页面初始化时检查桌台状态）
+   * 返回包含 accessToken（2026-04-21: 后端 Hook 已为所有订单统一生成 accessToken）
    */
   async getOrdersByTable(tableNo: string): Promise<Order[]> {
     const res = await fetchWithTimeout(`${PB_URL}/public/orders/by-table/${encodeURIComponent(tableNo)}`)
