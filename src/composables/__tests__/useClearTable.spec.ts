@@ -150,8 +150,8 @@ describe('useClearTable', () => {
       vi.mocked(OrderAPI.getOrder).mockResolvedValue({
         id: 'o1', status: OrderStatus.COMPLETED,
       } as any)
-      vi.mocked(OrderAPI.updateOrderStatus).mockResolvedValue(undefined)
-      vi.mocked(TableStatusAPI.updateTableStatus).mockResolvedValue(undefined)
+      vi.mocked(OrderAPI.updateOrderStatus).mockResolvedValue({} as any)
+      vi.mocked(TableStatusAPI.updateTableStatus).mockResolvedValue({} as any)
       const { executeClearTable } = useClearTable()
       await executeClearTable({
         id: 'ts1', tableNo: 'A1', status: 'dining', currentOrderId: 'o1',
@@ -167,7 +167,7 @@ describe('useClearTable', () => {
       vi.mocked(OrderAPI.getOrder).mockResolvedValue({
         id: 'o1', status: OrderStatus.SETTLED,
       } as any)
-      vi.mocked(TableStatusAPI.updateTableStatus).mockResolvedValue(undefined)
+      vi.mocked(TableStatusAPI.updateTableStatus).mockResolvedValue({} as any)
       const { executeClearTable } = useClearTable()
       await executeClearTable({
         id: 'ts1', tableNo: 'A1', status: 'dining', currentOrderId: 'o1',
@@ -180,7 +180,7 @@ describe('useClearTable', () => {
     })
 
     it('无 currentOrderId 时应直接清台', async () => {
-      vi.mocked(TableStatusAPI.updateTableStatus).mockResolvedValue(undefined)
+      vi.mocked(TableStatusAPI.updateTableStatus).mockResolvedValue({} as any)
       const { executeClearTable } = useClearTable()
       await executeClearTable({
         id: 'ts1', tableNo: 'A1', status: 'dining',

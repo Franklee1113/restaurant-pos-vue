@@ -609,7 +609,7 @@ describe('OrderFormView - 交互与边界补充', () => {
     const cartItem = vm.cart.find((c: any) => c.dishId === 'd3')
     const updatedDish = { id: 'd3', name: '凉拌黄瓜', soldOut: true }
     if (cartItem && updatedDish.soldOut) {
-      toastWarning(`"${updatedDish.name}" 已沽清，请从购物车移除`)
+      ;(toastWarning as any)(`"${updatedDish.name}" 已沽清，请从购物车移除`)
     }
     expect(toastWarning).toHaveBeenCalledWith(expect.stringContaining('已沽清'))
   })

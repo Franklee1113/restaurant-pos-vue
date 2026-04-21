@@ -209,7 +209,7 @@ docker compose up -d --build
 
 ## 测试状态
 
-- **单元测试**: 515 个通过，2 个跳过 ✅ (`npm run test:unit`)
+- **单元测试**: 568 个通过，2 个跳过 ✅ (`npm run test:unit`)
 - **E2E 测试**: 27 个通过，2 个条件跳过 ✅ (`npx playwright test`)
   - 覆盖：登录、扫码点餐完整链路、清台联动、沽清同步、厨房大屏、订单核心流程、菜品维护、系统设置
 

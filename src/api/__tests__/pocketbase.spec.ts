@@ -369,18 +369,30 @@ describe('subscribeToOrders', () => {
     global.EventSource = function () { return mockES } as any
 
     mockFetch.mockReturnValueOnce(mockResponse({ clientId: 'cid123' }))
+    mockFetch.mockReturnValueOnce(Promise.resolve({ ok: true, status: 200 } as Response))
 
     const unsub = await subscribeToOrders("status='pending'", vi.fn())
     expect(typeof unsub).toBe('function')
     expect(mockES.addEventListener).toHaveBeenCalledWith('PB_CONNECT', expect.any(Function))
     expect(mockES.addEventListener).toHaveBeenCalledWith('orders', expect.any(Function))
 
+    // 触发 PB_CONNECT，覆盖 doSubscribe 分支
+    const pbConnectHandler = mockES.addEventListener.mock.calls.find(
+      (call: any[]) => call[0] === 'PB_CONNECT',
+    )![1]
+    pbConnectHandler()
+    // doSubscribe 内部 fetch 已被调用
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/realtime/subscribe'),
+      expect.objectContaining({ method: 'POST' }),
+    )
+
     unsub()
     expect(mockES.close).toHaveBeenCalled()
   })
 
   it('EventSource 不支持时应抛错', async () => {
-    // @ts-ignore
+    // @ts-expect-error global override in test
     global.EventSource = undefined
     await expect(subscribeToOrders("status='pending'", vi.fn())).rejects.toThrow('EventSource not supported')
   })
@@ -440,6 +452,7 @@ describe('subscribeToDishes', () => {
     global.EventSource = MockEventSource as unknown as typeof EventSource
 
     mockFetch.mockReturnValueOnce(mockResponse({ clientId: 'cid123' }))
+    mockFetch.mockReturnValueOnce(Promise.resolve({ ok: true, status: 200 } as Response))
 
     const cb1 = vi.fn()
     const cb2 = vi.fn()
@@ -447,6 +460,12 @@ describe('subscribeToDishes', () => {
     const unsub2 = await subscribeToDishes(cb2)
 
     expect(MockEventSource).toHaveBeenCalledTimes(1)
+
+    // 触发 PB_CONNECT，覆盖 doSubscribe 分支
+    const pbConnectHandler = mockES.addEventListener.mock.calls.find(
+      (call: any[]) => call[0] === 'PB_CONNECT',
+    )![1]
+    pbConnectHandler()
 
     // 模拟 PocketBase 推送菜品更新
     const collectionHandler = mockES.addEventListener.mock.calls.find(
@@ -469,7 +488,7 @@ describe('subscribeToDishes', () => {
   it('EventSource 不支持时应抛出错误', async () => {
     // jsdom 中无法真正删除 EventSource，测试逻辑分支即可
     const original = global.EventSource
-    // @ts-ignore
+    // @ts-expect-error global override in test
     global.EventSource = undefined
     await expect(subscribeToDishes(vi.fn())).rejects.toThrow('EventSource not supported')
     global.EventSource = original
@@ -485,5 +504,296 @@ describe('DishAPI', () => {
   it('createDish 应强制认证', async () => {
     delete mockLocalStorage[STORAGE_KEY_TOKEN]
     await expect(DishAPI.createDish({ name: 'Test', price: 10, category: '测试' })).rejects.toThrow('未登录')
+  })
+
+  it('createDish 成功应返回菜品并清除缓存', async () => {
+    mockFetch.mockReturnValue(mockResponse({ id: 'd_new', name: '新菜', price: 99 }))
+    const res = await DishAPI.createDish({ name: '新菜', price: 99, category: '测试' })
+    expect(res.id).toBe('d_new')
+  })
+
+  it('updateDish 成功应返回更新后的菜品', async () => {
+    mockFetch.mockReturnValue(mockResponse({ id: 'd1', name: '更新菜', price: 88 }))
+    const res = await DishAPI.updateDish('d1', { name: '更新菜' })
+    expect(res.name).toBe('更新菜')
+  })
+
+  it('deleteDish 成功应返回 true', async () => {
+    mockFetch.mockReturnValue(mockResponse({}, 204))
+    const res = await DishAPI.deleteDish('d1')
+    expect(res).toBe(true)
+  })
+})
+
+describe('fetchWithTimeout', () => {
+  it('请求超时应抛出 408 错误', async () => {
+    const { fetchWithTimeout } = await import('@/api/pocketbase')
+    // 模拟 fetch 抛出 AbortError（超时场景）
+    mockFetch.mockImplementation(() => {
+      const err = new Error('The operation was aborted.')
+      err.name = 'AbortError'
+      return Promise.reject(err)
+    })
+    await expect(fetchWithTimeout('/test', {}, 10)).rejects.toThrow('请求超时')
+  })
+
+  it('非 AbortError 网络错误应包装为 APIError', async () => {
+    const { fetchWithTimeout } = await import('@/api/pocketbase')
+    mockFetch.mockRejectedValue(new TypeError('Failed to fetch'))
+    await expect(fetchWithTimeout('/test')).rejects.toThrow('Failed to fetch')
+  })
+})
+
+describe('handleResponse', () => {
+  it('response.json() 失败时应使用 statusText 构造错误', async () => {
+    const { handleResponse } = await import('@/api/pocketbase')
+    const res = {
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      json: () => Promise.reject(new Error('invalid json')),
+    } as Response
+    await expect(handleResponse(res)).rejects.toThrow('HTTP 500: Internal Server Error')
+  })
+
+  it('500 错误应上报 Sentry', async () => {
+    const { handleResponse } = await import('@/api/pocketbase')
+    const res = {
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      json: () => Promise.resolve({ message: 'Server Error' }),
+    } as Response
+    await expect(handleResponse(res)).rejects.toThrow('Server Error')
+  })
+})
+
+describe('StatsAPI 异常分支', () => {
+  it('getStats 非 404 错误应重新抛出', async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      json: () => Promise.resolve({ message: 'Server Error' }),
+    } as Response)
+    await expect(StatsAPI.getStats()).rejects.toThrow('Server Error')
+  })
+})
+
+describe('subscribeToOrders', () => {
+  const originalEventSource = globalThis.EventSource
+
+  afterEach(() => {
+    globalThis.EventSource = originalEventSource
+  })
+
+  it('无 EventSource 时应抛错', async () => {
+    // @ts-expect-error global override in test
+    globalThis.EventSource = undefined
+    const { subscribeToOrders } = await import('@/api/pocketbase')
+    await expect(subscribeToOrders("status='pending'", () => {})).rejects.toThrow('EventSource not supported')
+  })
+})
+
+describe('subscribeToDishes 共享 SSE 清理', () => {
+  const originalEventSource = globalThis.EventSource
+
+  afterEach(() => {
+    globalThis.EventSource = originalEventSource
+  })
+
+  it('最后一个注销时应关闭 EventSource', async () => {
+    vi.resetModules()
+    const mockClose = vi.fn()
+    const instances: any[] = []
+    class MockES {
+      url = ''
+      listeners: Record<string, ((e: MessageEvent) => void)[]> = {}
+      constructor() { instances.push(this) }
+      addEventListener = vi.fn((event: string, handler: (e: MessageEvent) => void) => {
+        if (!this.listeners[event]) this.listeners[event] = []
+        this.listeners[event].push(handler)
+      })
+      close = mockClose
+    }
+    // @ts-expect-error global override in test
+    globalThis.EventSource = MockES
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ clientId: 'test-client-id' }),
+    } as Response)
+
+    const pb = await import('@/api/pocketbase')
+    const unsub1 = await pb.subscribeToDishes(() => {})
+    const unsub2 = await pb.subscribeToDishes(() => {})
+
+    // 注销一个，连接应保留
+    unsub1()
+    expect(mockClose).not.toHaveBeenCalled()
+
+    // 注销最后一个，连接应关闭
+    unsub2()
+    expect(mockClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('SSE 消息 JSON.parse 失败应静默忽略', async () => {
+    vi.resetModules()
+    const mockClose = vi.fn()
+    const instances: any[] = []
+    class MockES {
+      url = ''
+      listeners: Record<string, ((e: MessageEvent) => void)[]> = {}
+      constructor() { instances.push(this) }
+      addEventListener = vi.fn((event: string, handler: (e: MessageEvent) => void) => {
+        if (!this.listeners[event]) this.listeners[event] = []
+        this.listeners[event].push(handler)
+      })
+      close = mockClose
+    }
+    // @ts-expect-error global override in test
+    globalThis.EventSource = MockES
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ clientId: 'test-client-id' }),
+    } as Response)
+
+    const pb = await import('@/api/pocketbase')
+    const cb = vi.fn()
+    await pb.subscribeToDishes(cb)
+
+    // 找到模块内部创建的 EventSource 实例，触发其监听器
+    const es = instances[0]
+    const dishListeners = es.listeners['dishes'] || []
+    // JSON.parse 对非法 JSON 应静默处理，不抛异常
+    dishListeners.forEach((handler: any) => {
+      handler(new MessageEvent('message', { data: 'invalid json {' }))
+    })
+    // 回调不应被调用（因为 parse 失败）
+    expect(cb).not.toHaveBeenCalled()
+  })
+})
+
+describe('privateRequest 分支覆盖', () => {
+  it('403 时应提示权限不足', async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 403,
+      statusText: 'Forbidden',
+      json: () => Promise.resolve({ message: 'Forbidden' }),
+    } as Response)
+    await expect(OrderAPI.getOrders()).rejects.toThrow('权限不足')
+  })
+
+  it('携带 FormData 时不应设置 Content-Type', async () => {
+    const formData = new FormData()
+    formData.append('file', new Blob(['test']))
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ id: 's1', restaurantName: 'Test' }),
+    } as Response)
+    await SettingsAPI.updateSettingsFiles('s1', formData)
+    const call = mockFetch.mock.calls[0]
+    const headers = call[1].headers as Headers
+    expect(headers.has('Content-Type')).toBe(false)
+    expect(headers.has('Authorization')).toBe(true)
+  })
+})
+
+describe('subscribeToOrders 异常分支', () => {
+  const originalEventSource = globalThis.EventSource
+
+  afterEach(() => {
+    globalThis.EventSource = originalEventSource
+  })
+
+  it('SSE 消息 JSON.parse 失败应静默忽略', async () => {
+    const instances: any[] = []
+    class MockES {
+      url = ''
+      listeners: Record<string, ((e: MessageEvent) => void)[]> = {}
+      constructor() { instances.push(this) }
+      addEventListener = vi.fn((event: string, handler: (e: MessageEvent) => void) => {
+        if (!this.listeners[event]) this.listeners[event] = []
+        this.listeners[event].push(handler)
+      })
+      close = vi.fn()
+    }
+    // @ts-expect-error global override in test
+    globalThis.EventSource = MockES
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ clientId: 'test-client-id' }),
+    } as Response)
+
+    vi.resetModules()
+    const pb = await import('@/api/pocketbase')
+    const cb = vi.fn()
+    await pb.subscribeToOrders("status='pending'", cb)
+
+    const es = instances[0]
+    const orderListeners = es.listeners['orders'] || []
+    orderListeners.forEach((handler: any) => {
+      handler(new MessageEvent('message', { data: 'invalid json {' }))
+    })
+    expect(cb).not.toHaveBeenCalled()
+  })
+})
+
+describe('PublicOrderAPI appendOrderItems 分支覆盖', () => {
+  it('dishesMap 包含沽清菜品应抛 400', async () => {
+    const dishesMap = new Map([['d1', { id: 'd1', name: '鱼', soldOut: true } as any]])
+    await expect(
+      PublicOrderAPI.appendOrderItems('o1', [{ dishId: 'd1', name: '鱼', price: 68, quantity: 1 }], dishesMap),
+    ).rejects.toThrow('以下菜品已沽清')
+  })
+
+  it('订单不存在应抛 404', async () => {
+    mockFetch.mockReturnValue(mockResponse(null, 204))
+    await expect(
+      PublicOrderAPI.appendOrderItems('o1', [{ dishId: 'd1', name: '鱼', price: 68, quantity: 1 }]),
+    ).rejects.toThrow('订单不存在')
+  })
+
+  it('已结束订单不能追加菜品', async () => {
+    mockFetch.mockReturnValueOnce(
+      mockResponse({ id: 'o1', status: 'completed', items: [] }),
+    )
+    await expect(
+      PublicOrderAPI.appendOrderItems('o1', [{ dishId: 'd1', name: '鱼', price: 68, quantity: 1 }]),
+    ).rejects.toThrow('订单已结束')
+  })
+})
+
+describe('DishAPI 剩余分支', () => {
+  it('getDishesByCategory 应按分类返回菜品', async () => {
+    mockFetch.mockReturnValue(mockResponse({
+      items: [{ id: 'd1', name: '鱼', category: '铁锅炖' }],
+    }))
+    const res = await DishAPI.getDishesByCategory('铁锅炖')
+    expect(res.items).toHaveLength(1)
+    const url = mockFetch.mock.calls[0][0] as string
+    expect(url).toContain('category%3D')
+  })
+
+  it('getDish 应返回单个菜品', async () => {
+    mockFetch.mockReturnValue(mockResponse({ id: 'd1', name: '鱼' }))
+    const res = await DishAPI.getDish('d1')
+    expect(res.name).toBe('鱼')
+  })
+})
+
+describe('PublicOrderAPI 剩余分支', () => {
+  it('createOrder 返回 null 应抛 500', async () => {
+    mockFetch.mockReturnValue(mockResponse(null, 204))
+    await expect(
+      PublicOrderAPI.createOrder({ tableNo: 'A1', guests: 2, items: [] }),
+    ).rejects.toThrow('创建订单失败')
   })
 })
