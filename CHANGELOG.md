@@ -5,6 +5,11 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 改进（交互体验）
+- **清台按钮条件渲染**：`OrderDetailView.vue` / `OrderListView.vue` 清台按钮仅对 `COMPLETED` 状态订单显示；`pendingTableNumbers` 快捷标签旁移除冗余清台按钮，避免对未完成订单误操作
+
 ## [1.1.3] - 2026-04-21
 
 ### 修复（业务逻辑一致性）

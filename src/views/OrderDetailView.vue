@@ -498,6 +498,7 @@ async function clearTable() {
                 取消订单
               </button>
               <button
+                v-if="order.status === OrderStatus.COMPLETED"
                 :disabled="processing"
                 class="w-full px-3 py-2 rounded-lg text-sm font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 active:scale-[0.98] transition-transform disabled:opacity-50"
                 @click="clearTable"

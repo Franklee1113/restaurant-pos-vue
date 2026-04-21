@@ -531,12 +531,7 @@ function exportExcel() {
         >
           {{ t }}
         </button>
-        <button
-          class="px-1.5 py-1 rounded text-[10px] text-red-600 hover:bg-red-50 border border-transparent"
-          @click="clearTable(t)"
-        >
-          清台
-        </button>
+
       </div>
     </div>
 
@@ -675,7 +670,7 @@ function exportExcel() {
                   {{ btn.label }}
                 </button>
                 <button class="px-2 py-1 text-[11px] font-medium bg-white text-red-600 border border-red-200 rounded-md hover:bg-red-50 active:scale-[0.98] transition-transform" @click="deleteOrder(order)">删除</button>
-                <button class="px-2 py-1 text-[11px] font-medium bg-white text-orange-600 border border-orange-200 rounded-md hover:bg-orange-50 active:scale-[0.98] transition-transform" @click="clearTable(order.tableNo)">清台</button>
+                <button v-if="order.status === OrderStatus.COMPLETED" class="px-2 py-1 text-[11px] font-medium bg-white text-orange-600 border border-orange-200 rounded-md hover:bg-orange-50 active:scale-[0.98] transition-transform" @click="clearTable(order.tableNo)">清台</button>
               </div>
             </td>
           </tr>
@@ -783,7 +778,7 @@ function exportExcel() {
             {{ btn.label }}
           </button>
           <button class="px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 border border-red-100 rounded-lg hover:bg-red-100 active:scale-[0.98] transition-transform" @click="deleteOrder(order)">删除</button>
-          <button class="px-3 py-1.5 text-xs font-medium bg-orange-50 text-orange-600 border border-orange-100 rounded-lg hover:bg-orange-100 active:scale-[0.98] transition-transform" @click="clearTable(order.tableNo)">清台</button>
+          <button v-if="order.status === OrderStatus.COMPLETED" class="px-3 py-1.5 text-xs font-medium bg-orange-50 text-orange-600 border border-orange-100 rounded-lg hover:bg-orange-100 active:scale-[0.98] transition-transform" @click="clearTable(order.tableNo)">清台</button>
         </div>
       </div>
     </div>

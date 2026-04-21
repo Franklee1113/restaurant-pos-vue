@@ -321,19 +321,14 @@ describe('OrderDetailView', () => {
     expect(executeClearTableMock).not.toHaveBeenCalled()
   })
 
-  it('should block clear table when order is still dining', async () => {
+  it('should not show clear table button when order is not completed', async () => {
     vi.mocked(OrderAPI.getOrder).mockResolvedValue(createMockOrder(OrderStatus.DINING) as any)
-    checkCanClearTableMock.mockResolvedValue({ canClear: false, reason: 'dining' })
-    confirmMock.mockResolvedValue(true)
 
     const wrapper = mountOrderDetailView()
     await flushPromises()
 
     const clearBtn = wrapper.findAll('button').find((b) => b.text().includes('清台'))
-    await clearBtn!.trigger('click')
-    await flushPromises()
-
-    expect(executeClearTableMock).not.toHaveBeenCalled()
+    expect(clearBtn).toBeUndefined()
   })
 
   it('should execute clear table when all checks pass', async () => {
