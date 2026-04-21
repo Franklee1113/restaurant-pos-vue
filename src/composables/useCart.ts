@@ -1,5 +1,6 @@
 import { ref, computed, type Ref } from 'vue'
 import { MoneyCalculator } from '@/utils/security'
+import { useToast } from '@/composables/useToast'
 
 export interface CartItem {
   dishId: string
@@ -13,6 +14,7 @@ export interface DishLike {
   id: string
   name: string
   price: number
+  soldOut?: boolean
 }
 
 export interface DishRule {
@@ -22,6 +24,7 @@ export interface DishRule {
 
 export function useCart(dishes: Ref<DishLike[]>, dishRules: Record<string, DishRule> = {}) {
   const cart = ref<CartItem[]>([])
+  const toast = useToast()
 
   const cartMap = computed(() => {
     const map = new Map<string, CartItem>()
@@ -38,6 +41,10 @@ export function useCart(dishes: Ref<DishLike[]>, dishRules: Record<string, DishR
   })
 
   function addToCart(dish: DishLike) {
+    if (dish.soldOut) {
+      toast.warning(`"${dish.name}" 已沽清，无法添加`)
+      return
+    }
     const existing = cart.value.find((i) => i.dishId === dish.id)
     if (existing) {
       existing.quantity = Math.round((existing.quantity + 1) * 10) / 10
@@ -49,11 +56,15 @@ export function useCart(dishes: Ref<DishLike[]>, dishRules: Record<string, DishR
     if (rule) {
       const addDish = dishes.value.find((d) => d.name === rule.add)
       if (addDish) {
-        const addExisting = cart.value.find((i) => i.dishId === addDish.id)
-        if (addExisting) {
-          addExisting.quantity = Math.round((addExisting.quantity + rule.qty) * 10) / 10
+        if (addDish.soldOut) {
+          toast.warning(`配菜 "${rule.add}" 已沽清，无法自动添加`)
         } else {
-          cart.value.push({ dishId: addDish.id, name: addDish.name, price: addDish.price, quantity: rule.qty, remark: '' })
+          const addExisting = cart.value.find((i) => i.dishId === addDish.id)
+          if (addExisting) {
+            addExisting.quantity = Math.round((addExisting.quantity + rule.qty) * 10) / 10
+          } else {
+            cart.value.push({ dishId: addDish.id, name: addDish.name, price: addDish.price, quantity: rule.qty, remark: '' })
+          }
         }
       }
     }

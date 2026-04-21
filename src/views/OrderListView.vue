@@ -498,12 +498,16 @@ function exportExcel() {
           :class="[
             'px-2.5 py-1 rounded-full text-xs font-medium border transition-colors',
             filter.status === s.value
-              ? 'bg-blue-600 text-white border-blue-600'
-              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300',
+              ? s.value === OrderStatus.COMPLETED
+                ? 'bg-amber-500 text-white border-amber-500'
+                : 'bg-blue-600 text-white border-blue-600'
+              : s.value === OrderStatus.COMPLETED
+                ? 'bg-white text-amber-600 border-amber-200 hover:border-amber-300'
+                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300',
           ]"
           @click="quickFilterStatus(s.value)"
         >
-          {{ s.label }}
+          {{ s.value === OrderStatus.COMPLETED ? '待清台' : s.label }}
         </button>
       </div>
     </div>

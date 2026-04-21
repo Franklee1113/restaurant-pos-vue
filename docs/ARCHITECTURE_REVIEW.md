@@ -469,7 +469,7 @@ const ok = await globalConfirm.confirm({
 #### 12.2 关键安全设计
 
 1. **防篡改金额**：无论前端传什么 `totalAmount`，后端都根据 `items` 和 `cutlery` 重新计算
-2. **防非法追加**：已取消订单不允许追加菜品；已完成订单追加会重置为 pending 并重新开台
+2. **防非法追加**：已取消订单不允许追加菜品；`dining`/`serving` 订单追加新菜品时保持原状态，仅新增菜品 `status = pending`
 3. **状态机守卫**：后端也维护了一套 `flow` 对象，防止绕过前端直接 API 调用造成的非法状态流转
 4. **并发安全**：清台时检查 `currentOrderId === record.id`，防止新订单被旧订单的清台操作覆盖
 

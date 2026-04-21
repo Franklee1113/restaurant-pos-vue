@@ -62,17 +62,34 @@ export function useClearTable() {
   }
 
   async function executeClearTable(tableStatus: TableStatus | undefined): Promise<void> {
-    if (!tableStatus?.id) return
+    if (!tableStatus?.id) {
+      throw new Error('桌台数据异常，请刷新页面后重试')
+    }
 
-    // 如果当前绑定订单是 completed（已结账但未清台），先同步更新为 settled
+    // 如果有绑定订单，必须先确认订单状态
     if (tableStatus.currentOrderId) {
+      let order: Awaited<ReturnType<typeof OrderAPI.getOrder>> | null = null
+
       try {
-        const order = await OrderAPI.getOrder(tableStatus.currentOrderId)
-        if (order.status === OrderStatus.COMPLETED) {
-          await OrderAPI.updateOrderStatus(order.id, OrderStatus.SETTLED)
-        }
+        order = await OrderAPI.getOrder(tableStatus.currentOrderId)
       } catch {
-        // 订单查询/更新失败时继续清台（不阻塞）
+        // 查询失败: 不确定订单状态，保守阻断
+        throw new Error('无法确认当前桌台订单状态，请检查网络后重试')
+      }
+
+      if (order.status === OrderStatus.COMPLETED) {
+        try {
+          await OrderAPI.updateOrderStatus(order.id, OrderStatus.SETTLED)
+        } catch {
+          // completed→settled 失败: 阻断清台，避免数据不一致
+          throw new Error('订单状态更新失败，请稍后重试')
+        }
+      }
+
+      // 兜底: 如果订单仍处于活跃状态，阻断清台
+      const activeStatuses = ['pending', 'cooking', 'serving', 'dining']
+      if (activeStatuses.includes(order.status)) {
+        throw new Error('该桌还有未完成订单，无法清台')
       }
     }
 

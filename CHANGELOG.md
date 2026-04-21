@@ -5,6 +5,27 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 并且本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.1.3] - 2026-04-21
+
+### 修复（业务逻辑一致性）
+- **退菜/删菜无后端校验（P0）**：`pb_hooks/orders.pb.js` 新增 `itemsRemoved` 检测，编辑订单时若删除 `cooking`/`cooked`/`served` 状态的菜品，后端抛出 `400` 错误阻断
+- **手动清台兜底过于宽松（P0）**：`useClearTable.ts` 重构异常处理，订单查询失败或 `completed→settled` 更新失败时**抛出异常阻断清台**，禁止静默忽略
+- **dining 订单追加菜品重置为 pending（P1）**：移除后端 Hook 中 `dining`/`serving` 追加重置逻辑，追加新菜品后**订单状态保持原状态**，仅新增菜品 `status = pending`
+- **顾客端与员工端沽清拦截不一致（P1）**：`CustomerOrderView.vue` Stepper 置灰 + `useCart.ts` `addToCart` 硬拦截，已沽清菜品无法添加；新增 10s 菜品轮询实时感知沽清变化
+- **铁锅鱼自动加锅底检查不一致（P1）**：`useCart.ts` 统一检查锅底 `soldOut`，员工端与顾客端行为一致
+
+### 改进（交互体验）
+- **订单列表「待清台」筛选标签**：`OrderListView.vue` 快捷筛选按钮中 `COMPLETED` 显示为「待清台」，琥珀色标识，与「用餐中」区分
+
+### 测试
+- `security.spec.ts` 补充 17 个 `MoneyCalculator` 边界测试用例（浮点精度、小数数量、折扣边界、大额场景），作为前后端金额计算一致性契约
+- 新增业务流程文档：`BUSINESS_PROCESS_FLOW.md`（Mermaid 流程图）、`TEST_CASE_MINDMAP.md`（测试案例）、`BUSINESS_LOGIC_GOVERNANCE.md`（治理方案）
+
+### 文档
+- `project-notes.md` v1.8：更新已知问题、检查点记录
+- `CODE_CHECKLIST.md` v1.7：新增 BUG-GOV-001~008 根因分析库 + 6 条预防措施
+- `智能点菜系统-详细设计说明书.md` v1.0.5：同步清台规则、编辑规则、追加规则、错误码
+
 ## [1.1.2] - 2026-04-20
 
 ### 修复（KDS 与状态机）

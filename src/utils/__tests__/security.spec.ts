@@ -114,6 +114,7 @@ describe('setSafeAttribute', () => {
 })
 
 describe('MoneyCalculator', () => {
+  // ── 基础计算（与后端 Hook 算法保持一致） ──
   it('应该精确计算订单金额', () => {
     const items = [{ price: 0.1, quantity: 3 }]
     const result = MoneyCalculator.calculate(items, 0)
@@ -139,6 +140,117 @@ describe('MoneyCalculator', () => {
     expect(MoneyCalculator.toYuan(1999)).toBe(19.99)
     expect(MoneyCalculator.toYuanFixed(1999)).toBe('19.99')
     expect(MoneyCalculator.toYuanFixed(5)).toBe('0.05')
+  })
+
+  // ── 边界测试：浮点精度（必须与后端 Hook 一致） ──
+  it('浮点精度: 0.1 × 3 = 0.3', () => {
+    const result = MoneyCalculator.calculate([{ price: 0.1, quantity: 3 }], 0)
+    expect(result.total).toBe(0.3)
+  })
+
+  it('浮点精度: 0.07 × 7 = 0.49', () => {
+    const result = MoneyCalculator.calculate([{ price: 0.07, quantity: 7 }], 0)
+    expect(result.total).toBe(0.49)
+  })
+
+  it('浮点精度: 0.17 × 3 = 0.51', () => {
+    const result = MoneyCalculator.calculate([{ price: 0.17, quantity: 3 }], 0)
+    expect(result.total).toBe(0.51)
+  })
+
+  it('小数数量: 68 × 1.5 = 102', () => {
+    const result = MoneyCalculator.calculate([{ price: 68, quantity: 1.5 }], 0)
+    expect(result.total).toBe(102)
+  })
+
+  it('多件混合: 68×2 + 12.5×1.5 = 154.75', () => {
+    const result = MoneyCalculator.calculate([
+      { price: 68, quantity: 2 },
+      { price: 12.5, quantity: 1.5 },
+    ], 0)
+    expect(result.total).toBe(154.75)
+  })
+
+  it('空购物车: total=0, discount=0, final=0', () => {
+    const result = MoneyCalculator.calculate([], 0)
+    expect(result.total).toBe(0)
+    expect(result.discount).toBe(0)
+    expect(result.final).toBe(0)
+  })
+
+  // ── 边界测试：百分比折扣（必须与后端 Hook 一致） ──
+  it('百分比折扣: 8折 (total=100)', () => {
+    const result = MoneyCalculator.calculateWithDiscount([{ price: 100, quantity: 1 }], 8, 'percent')
+    expect(result.discount).toBe(20)
+    expect(result.final).toBe(80)
+  })
+
+  it('百分比折扣: 9.5折 (total=100)', () => {
+    const result = MoneyCalculator.calculateWithDiscount([{ price: 100, quantity: 1 }], 9.5, 'percent')
+    expect(result.discount).toBe(5)
+    expect(result.final).toBe(95)
+  })
+
+  it('百分比折扣: 10折 = 无折扣', () => {
+    const result = MoneyCalculator.calculateWithDiscount([{ price: 100, quantity: 1 }], 10, 'percent')
+    expect(result.discount).toBe(0)
+    expect(result.final).toBe(100)
+  })
+
+  it('百分比折扣: 0折 = 无折扣（非法输入边界）', () => {
+    const result = MoneyCalculator.calculateWithDiscount([{ price: 100, quantity: 1 }], 0, 'percent')
+    expect(result.discount).toBe(0)
+    expect(result.final).toBe(100)
+  })
+
+  it('百分比折扣: >10折 = 无折扣（非法输入边界）', () => {
+    const result = MoneyCalculator.calculateWithDiscount([{ price: 100, quantity: 1 }], 12, 'percent')
+    expect(result.discount).toBe(0)
+    expect(result.final).toBe(100)
+  })
+
+  // ── 边界测试：固定金额折扣（必须与后端 Hook 一致） ──
+  it('固定减免: 0元 = 无折扣', () => {
+    const result = MoneyCalculator.calculateWithDiscount([{ price: 100, quantity: 1 }], 0, 'amount')
+    expect(result.discount).toBe(0)
+    expect(result.final).toBe(100)
+  })
+
+  it('固定减免: 等于总价', () => {
+    const result = MoneyCalculator.calculateWithDiscount([{ price: 100, quantity: 1 }], 100, 'amount')
+    expect(result.discount).toBe(100)
+    expect(result.final).toBe(0)
+  })
+
+  it('固定减免: 大于总价 → discount=min(discount,total), final≥0', () => {
+    const result = MoneyCalculator.calculateWithDiscount([{ price: 100, quantity: 1 }], 150, 'amount')
+    expect(result.discount).toBe(100)
+    expect(result.final).toBe(0)
+  })
+
+  it('固定减免: 小数金额', () => {
+    const result = MoneyCalculator.calculateWithDiscount([{ price: 100, quantity: 1 }], 12.55, 'amount')
+    expect(result.discount).toBe(12.55)
+    expect(result.final).toBe(87.45)
+  })
+
+  // ── 边界测试：大额 / 极端场景 ──
+  it('大额订单: 9999 × 99', () => {
+    const result = MoneyCalculator.calculate([{ price: 9999, quantity: 99 }], 0)
+    expect(result.total).toBe(989901)
+  })
+
+  it('多件累加折扣: 3道菜 8折', () => {
+    const result = MoneyCalculator.calculateWithDiscount([
+      { price: 68, quantity: 1 },
+      { price: 32, quantity: 2 },
+      { price: 12.5, quantity: 1.5 },
+    ], 8, 'percent')
+    // total = 68 + 64 + 18.75 = 150.75
+    // 8折 → final = 120.6, discount = 30.15
+    expect(result.total).toBe(150.75)
+    expect(result.discount).toBe(30.15)
+    expect(result.final).toBe(120.6)
   })
 })
 

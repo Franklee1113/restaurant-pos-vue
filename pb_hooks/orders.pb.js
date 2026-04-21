@@ -329,38 +329,21 @@ onRecordBeforeUpdateRequest(
         throw new Error('订单已取消，不能追加菜品')
       }
 
-      // 如果有新菜品追加到已结束订单，重置为 pending 并重新开台
-      if (itemsAppended && (oldStatus === 'dining' || oldStatus === 'serving')) {
-        record.set('status', 'pending')
-        try {
-          const tableNo = record.get('tableNo')
-          if (tableNo) {
-            const records = $app.dao().findRecordsByFilter(
-              'table_status',
-              'tableNo = {:tableNo}',
-              '',
-              1,
-              0,
-              { tableNo: tableNo },
-            )
-            if (records && records.length > 0) {
-              const ts = records[0]
-              ts.set('status', 'dining')
-              ts.set('currentOrderId', record.id)
-              $app.dao().saveRecord(ts)
-            } else {
-              const collection = $app.dao().findCollectionByNameOrId('table_status')
-              const ts = new Record(collection)
-              ts.set('tableNo', tableNo)
-              ts.set('status', 'dining')
-              ts.set('currentOrderId', record.id)
-              ts.set('openedAt', new Date().toISOString())
-              $app.dao().saveRecord(ts)
-            }
-          }
-        } catch (err) {
-          console.error('table_status re-open error:', err)
-          throw new Error('重新开台失败: ' + err.message)
+      // ── 新增：检测是否有已制作/已上菜的菜品被删除 ──
+      const itemsRemoved = oldItems.length > newItems.length ||
+        oldItems.some(function (oldItem) {
+          return !newItems.find(function (ni) { return ni.dishId === oldItem.dishId })
+        })
+
+      if (itemsRemoved) {
+        const removedItems = oldItems.filter(function (oi) {
+          return !newItems.find(function (ni) { return ni.dishId === oi.dishId })
+        })
+        const hasCookingOrServed = removedItems.some(function (item) {
+          return item.status === 'cooking' || item.status === 'cooked' || item.status === 'served'
+        })
+        if (hasCookingOrServed) {
+          throw new Error('已制作/已上菜的菜品不可直接删除，如需退菜请联系管理员')
         }
       }
 

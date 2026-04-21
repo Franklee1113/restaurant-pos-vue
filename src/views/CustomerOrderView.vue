@@ -130,6 +130,28 @@ async function refreshOrder() {
 
 const { start: startAutoRefresh, stop: stopAutoRefresh } = useAutoRefresh(refreshOrder, { interval: 15000, immediate: false })
 
+// BUG-GOV-004: 菜品轮询，每 10s 刷新沽清状态
+async function refreshDishes() {
+  try {
+    const dishRes = await PublicDishAPI.getDishes()
+    const prevSoldOutMap = new Map(dishes.value.map((d) => [d.id, d.soldOut]))
+    dishes.value = dishRes.items
+    tablewareDish.value = dishRes.items.find((d) => d.category === '餐具') || null
+
+    // 如果购物车中有菜品刚刚变为 soldOut，立即提示
+    for (const item of cart.value) {
+      const dish = dishRes.items.find((d) => d.id === item.dishId)
+      if (dish && dish.soldOut && !prevSoldOutMap.get(dish.id)) {
+        toast.warning(`"${dish.name}" 已沽清，请从购物车中移除`)
+      }
+    }
+  } catch {
+    // 静默失败，避免干扰顾客体验
+  }
+}
+
+const { start: startDishRefresh, stop: stopDishRefresh } = useAutoRefresh(refreshDishes, { interval: 10000, immediate: false })
+
 onMounted(() => {
   if (!tableNo.value) {
     toast.error('无效的桌号')
@@ -137,10 +159,12 @@ onMounted(() => {
   }
   loadData()
   startAutoRefresh()
+  startDishRefresh()
 })
 
 onUnmounted(() => {
   stopAutoRefresh()
+  stopDishRefresh()
   if (successTimer) {
     clearTimeout(successTimer)
     successTimer = null
@@ -527,7 +551,10 @@ async function submitOrder() {
 
             <!-- Stepper -->
             <div class="shrink-0">
-              <div v-if="cartMap.get(dish.id)" class="flex items-center gap-2">
+              <div v-if="dish.soldOut" class="rounded-full bg-gray-200 px-3 py-1 text-xs font-medium text-gray-500">
+                已沽清
+              </div>
+              <div v-else-if="cartMap.get(dish.id)" class="flex items-center gap-2">
                 <button
                   class="flex h-7 w-7 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 shadow-sm transition active:scale-90 hover:bg-gray-50"
                   aria-label="减少数量"

@@ -330,7 +330,7 @@ export function mergeOrderItems(existingItems: OrderItem[], newItems: OrderItem[
         existing.status = ITEM_STATUS_PENDING
       }
     } else {
-      merged.push({ ...item })
+      merged.push({ ...item, status: ITEM_STATUS_PENDING })
     }
   }
   return merged
