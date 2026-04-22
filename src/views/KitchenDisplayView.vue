@@ -95,9 +95,10 @@ async function loadData() {
   }
 }
 
-async function startCooking(order: Order, item: OrderItem) {
+async function startCooking(order: Order, itemIndex: number) {
   try {
-    await OrderAPI.updateOrderItemStatus(order.id, item.dishId, 'cooking')
+    await OrderAPI.updateOrderItemStatus(order.id, itemIndex, 'cooking')
+    const item = order.items[itemIndex]
     toast.success(`${order.tableNo}号桌 ${item.name} 开始制作`)
     await loadData()
   } catch (err: unknown) {
@@ -105,9 +106,10 @@ async function startCooking(order: Order, item: OrderItem) {
   }
 }
 
-async function finishCooking(order: Order, item: OrderItem) {
+async function finishCooking(order: Order, itemIndex: number) {
   try {
-    await OrderAPI.updateOrderItemStatus(order.id, item.dishId, 'cooked')
+    await OrderAPI.updateOrderItemStatus(order.id, itemIndex, 'cooked')
+    const item = order.items[itemIndex]
     toast.success(`${order.tableNo}号桌 ${item.name} 已出餐`)
     await loadData()
   } catch (err: unknown) {
@@ -192,20 +194,21 @@ function formatTime(created: string) {
             </div>
           </div>
           <div class="space-y-0 mb-4 flex-1 divide-y divide-red-500/40">
-            <div
-              v-for="item in order.items.filter((i) => getItemStatus(i) === 'pending')"
-              :key="item.dishId + '-pending'"
-              class="grid grid-cols-[minmax(0,1fr)_3.5rem_auto] items-center gap-3 text-lg md:text-xl py-2"
-            >
-              <span class="font-semibold truncate">{{ item.name }}</span>
-              <span class="font-bold text-2xl text-right tabular-nums leading-none">×{{ item.quantity }}</span>
-              <button
-                class="px-3 py-1.5 bg-white text-red-600 text-sm font-bold rounded-lg hover:bg-gray-100 active:scale-[0.98] transition-transform min-w-[5rem] justify-self-end"
-                @click="startCooking(order, item)"
+            <template v-for="(item, itemIdx) in order.items" :key="itemIdx + '-pending'">
+              <div
+                v-if="getItemStatus(item) === 'pending'"
+                class="grid grid-cols-[minmax(0,1fr)_3.5rem_auto] items-center gap-3 text-lg md:text-xl py-2"
               >
-                开始制作
-              </button>
-            </div>
+                <span class="font-semibold truncate">{{ item.name }}</span>
+                <span class="font-bold text-2xl text-right tabular-nums leading-none">×{{ item.quantity }}</span>
+                <button
+                  class="px-3 py-1.5 bg-white text-red-600 text-sm font-bold rounded-lg hover:bg-gray-100 active:scale-[0.98] transition-transform min-w-[5rem] justify-self-end"
+                  @click="startCooking(order, itemIdx)"
+                >
+                  开始制作
+                </button>
+              </div>
+            </template>
           </div>
           <div v-if="order.remark" class="text-sm bg-red-700 rounded-lg px-3 py-2 mb-3">
             备注: {{ order.remark }}
@@ -262,26 +265,27 @@ function formatTime(created: string) {
             class="space-y-0 mb-4 flex-1"
             :class="cookingOrderMeta.get(order.id)?.isOverdue ? 'divide-y divide-white/20' : 'divide-y divide-black/10'"
           >
-            <div
-              v-for="item in order.items.filter((i) => getItemStatus(i) === 'cooking')"
-              :key="item.dishId + '-cooking'"
-              class="grid grid-cols-[minmax(0,1fr)_3.5rem_auto] items-center gap-3 text-lg md:text-xl py-2"
-            >
-              <span class="font-semibold truncate">{{ item.name }}</span>
-              <span
-                class="font-bold text-2xl text-right tabular-nums leading-none"
-                :class="cookingOrderMeta.get(order.id)?.isOverdue ? 'text-white' : ''"
+            <template v-for="(item, itemIdx) in order.items" :key="itemIdx + '-cooking'">
+              <div
+                v-if="getItemStatus(item) === 'cooking'"
+                class="grid grid-cols-[minmax(0,1fr)_3.5rem_auto] items-center gap-3 text-lg md:text-xl py-2"
               >
-                ×{{ item.quantity }}
-              </span>
-              <button
-                class="px-3 py-1.5 text-sm font-bold rounded-lg active:scale-[0.98] transition-transform min-w-[5rem] justify-self-end"
-                :class="cookingOrderMeta.get(order.id)?.isOverdue ? 'bg-white text-orange-600 hover:bg-gray-100' : 'bg-gray-900 text-white hover:bg-gray-800'"
-                @click="finishCooking(order, item)"
-              >
-                已完成
-              </button>
-            </div>
+                <span class="font-semibold truncate">{{ item.name }}</span>
+                <span
+                  class="font-bold text-2xl text-right tabular-nums leading-none"
+                  :class="cookingOrderMeta.get(order.id)?.isOverdue ? 'text-white' : ''"
+                >
+                  ×{{ item.quantity }}
+                </span>
+                <button
+                  class="px-3 py-1.5 text-sm font-bold rounded-lg active:scale-[0.98] transition-transform min-w-[5rem] justify-self-end"
+                  :class="cookingOrderMeta.get(order.id)?.isOverdue ? 'bg-white text-orange-600 hover:bg-gray-100' : 'bg-gray-900 text-white hover:bg-gray-800'"
+                  @click="finishCooking(order, itemIdx)"
+                >
+                  已完成
+                </button>
+              </div>
+            </template>
           </div>
           <div
             v-if="order.remark"

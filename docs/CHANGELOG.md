@@ -7,6 +7,14 @@
 
 ## [Unreleased]
 
+### 修复（P0 生产故障 — 追加菜品 KDS 状态错乱）
+- **追加菜品后 KDS 显示总份数全为"待制作"**：`mergeOrderItems` 合并相同 `dishId` 的数量并统一重置状态为 `pending`，导致追加的已做过菜品被覆盖为待做，KDS 显示的总份数与已完成份数全部错乱
+  - **方案 A**：`mergeOrderItems` 改为追加不合并，相同 `dishId` 作为独立 `OrderItem` 条目，保留各自状态
+  - `updateOrderItemStatus(id, dishId, status)` → `updateOrderItemStatus(id, itemIndex, status)`：按数组索引精确定位单条菜品，避免同名菜品批量误改状态
+  - `KitchenDisplayView.vue`：`v-for` 改为 `template v-for` + `v-if` 按状态筛选，`:key` 使用 `itemIdx + '-pending'/'-cooking'`，`startCooking`/`finishCooking` 传递原始索引而非 `dishId`
+  - `OrderDetailView.vue`：`:key="item.dishId"` → `:key="index"`，避免重复 `dishId` 导致 Vue key 冲突
+  - 影响分析：`OrderListView`（菜品数统计按 `items.length` 不受影响）、`StatisticsView`（销量统计按条目累加不受影响）、`printBill.ts`（逐条打印不受影响）、后端 Hook（`items` 数组长度增加，金额/状态推断逻辑完全兼容）
+
 ### 修复（P0 生产故障）
 - **新建订单返回 400 `data: {}` 导致"无响应"**：`pb_hooks/orders.pb.js` 中 `parseJSONField` 与 PocketBase v0.22.27 Goja VM 的 JSON 字段返回类型不兼容，Hook 执行异常后 PocketBase 返回空 data 的通用 400 错误
   - `parseJSONField` 增强为三模式兼容：优先识别已解析的 `object`/`array`、其次 `string`（JSON 文本）、最后回退到 `[]byte`（PB VM 默认行为）

@@ -364,8 +364,8 @@ async function clearTable() {
           <!-- Receipt items -->
           <div v-else class="space-y-2">
             <div
-              v-for="item in order.items"
-              :key="item.dishId"
+              v-for="(item, index) in order.items"
+              :key="index"
               class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0"
             >
               <div class="flex-1 min-w-0">

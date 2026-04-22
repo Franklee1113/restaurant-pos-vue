@@ -246,7 +246,7 @@ describe('KitchenDisplayView', () => {
     await startBtn!.trigger('click')
     await flushPromises()
 
-    expect(vi.mocked(OrderAPI.updateOrderItemStatus)).toHaveBeenCalledWith('1', 'd1', 'cooking')
+    expect(vi.mocked(OrderAPI.updateOrderItemStatus)).toHaveBeenCalledWith('1', 0, 'cooking')
     expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining('开始制作'))
   })
 
@@ -268,7 +268,7 @@ describe('KitchenDisplayView', () => {
     await finishBtn!.trigger('click')
     await flushPromises()
 
-    expect(vi.mocked(OrderAPI.updateOrderItemStatus)).toHaveBeenCalledWith('2', 'd2', 'cooked')
+    expect(vi.mocked(OrderAPI.updateOrderItemStatus)).toHaveBeenCalledWith('2', 0, 'cooked')
     expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining('已出餐'))
   })
 

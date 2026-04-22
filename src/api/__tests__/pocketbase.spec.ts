@@ -74,11 +74,14 @@ describe('escapePbString', () => {
 })
 
 describe('mergeOrderItems', () => {
-  it('应合并相同 dishId 的数量', () => {
+  it('追加相同 dishId 应作为独立条目，不合并数量', () => {
     const existing = [{ dishId: '1', name: 'A', price: 10, quantity: 1 }]
     const incoming = [{ dishId: '1', name: 'A', price: 10, quantity: 2 }]
     const result = mergeOrderItems(existing, incoming)
-    expect(result[0]!.quantity).toBe(3)
+    expect(result).toHaveLength(2)
+    expect(result[0]!.quantity).toBe(1)
+    expect(result[1]!.quantity).toBe(2)
+    expect(result[1]!.status).toBe('pending')
   })
 
   it('应添加新菜品', () => {
@@ -153,20 +156,24 @@ describe('OrderAPI', () => {
     expect(body.status).toBe('cooking')
   })
 
-  it('updateOrderItemStatus 应更新指定菜品状态', async () => {
+  it('updateOrderItemStatus 应更新指定索引菜品状态', async () => {
     const mockOrder: Order = {
       id: '1', orderNo: 'O001', tableNo: 'A1', guests: 2, status: 'pending' as OrderStatusValue,
-      items: [{ dishId: 'd1', name: '鱼', price: 68, quantity: 1, status: 'pending' }],
-      totalAmount: 68, discount: 0, discountType: 'amount', discountValue: 0, finalAmount: 68,
+      items: [
+        { dishId: 'd1', name: '鱼', price: 68, quantity: 1, status: 'pending' },
+        { dishId: 'd1', name: '鱼', price: 68, quantity: 1, status: 'pending' },
+      ],
+      totalAmount: 136, discount: 0, discountType: 'amount', discountValue: 0, finalAmount: 136,
       created: new Date().toISOString(), updated: new Date().toISOString(),
     }
     mockFetch.mockReturnValue(mockResponse(mockOrder))
 
-    const res = await OrderAPI.updateOrderItemStatus('1', 'd1', 'cooking')
+    const res = await OrderAPI.updateOrderItemStatus('1', 1, 'cooking')
     expect(res.id).toBe('1')
     const patchCall = mockFetch.mock.calls[1] as [string, RequestInit]
     const body = JSON.parse(patchCall[1].body as string)
-    expect(body.items[0].status).toBe('cooking')
+    expect(body.items[0].status).toBe('pending')
+    expect(body.items[1].status).toBe('cooking')
   })
 
   it('updateOrderItemStatus 对已结束订单应抛错', async () => {
@@ -177,7 +184,7 @@ describe('OrderAPI', () => {
     }
     mockFetch.mockReturnValue(mockResponse(mockOrder))
 
-    await expect(OrderAPI.updateOrderItemStatus('1', 'd1', 'cooking')).rejects.toThrow('订单已结束')
+    await expect(OrderAPI.updateOrderItemStatus('1', 0, 'cooking')).rejects.toThrow('订单已结束')
   })
 
   it('appendOrderItems 应合并新菜品', async () => {
@@ -266,10 +273,12 @@ describe('PublicOrderAPI', () => {
     )
     const res = await PublicOrderAPI.appendOrderItems('1', [{ dishId: 'd1', name: '鱼', price: 68, quantity: 1 }])
     expect(res.id).toBe('1')
-    // 验证 PATCH 请求 body 包含合并后的 items
+    // 验证 PATCH 请求 body 包含追加后的 items（不再合并）
     const patchCall = mockFetch.mock.calls[1] as [string, RequestInit]
     const body = JSON.parse(patchCall[1].body as string)
-    expect(body.items[0].quantity).toBe(3) // 2 + 1
+    expect(body.items).toHaveLength(2)
+    expect(body.items[0].quantity).toBe(2)
+    expect(body.items[1].quantity).toBe(1)
   })
 })
 

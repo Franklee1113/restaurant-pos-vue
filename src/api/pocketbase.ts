@@ -318,22 +318,12 @@ class MemoryCache {
 export const apiCache = new MemoryCache()
 
 // P1-4: 提取 appendOrderItems 中的合并逻辑为公共纯函数
+// 2026-04-22: 追加不合并相同 dishId，作为独立 item，解决 KDS 显示已做+待做份数不准的问题
 export function mergeOrderItems(existingItems: OrderItem[], newItems: OrderItem[]): OrderItem[] {
-  const merged = [...existingItems]
-  for (const item of newItems) {
-    const existing = merged.find((i) => i.dishId === item.dishId)
-    if (existing) {
-      existing.quantity = Math.round((existing.quantity + item.quantity) * 10) / 10
-      if (item.remark) existing.remark = item.remark
-      // 追加的菜品需要重新制作，状态重置为 pending
-      if (existing.status && existing.status !== ITEM_STATUS_PENDING) {
-        existing.status = ITEM_STATUS_PENDING
-      }
-    } else {
-      merged.push({ ...item, status: ITEM_STATUS_PENDING })
-    }
-  }
-  return merged
+  return [
+    ...existingItems,
+    ...newItems.map((item) => ({ ...item, status: ITEM_STATUS_PENDING as OrderItem['status'] })),
+  ]
 }
 
 export const OrderAPI = {
@@ -383,7 +373,7 @@ export const OrderAPI = {
 
   async updateOrderItemStatus(
     id: string,
-    dishId: string,
+    itemIndex: number,
     itemStatus: typeof ITEM_STATUS_PENDING | typeof ITEM_STATUS_COOKING | typeof ITEM_STATUS_COOKED | typeof ITEM_STATUS_SERVED,
   ): Promise<Order> {
     const order = await this.getOrder(id)
@@ -392,8 +382,8 @@ export const OrderAPI = {
       throw new APIError('订单已结束，不能修改菜品状态', 400)
     }
 
-    const items = (order.items || []).map((item) =>
-      item.dishId === dishId ? { ...item, status: itemStatus } : item,
+    const items = (order.items || []).map((item, idx) =>
+      idx === itemIndex ? { ...item, status: itemStatus } : item,
     )
 
     return this.updateOrder(id, { items })
