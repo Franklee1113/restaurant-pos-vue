@@ -396,7 +396,7 @@ deploy.sh:   NGINX_ROOT="/var/www/restaurant-pos"
 ### 🔴 P1 - 近期必须完成
 - [x] **统计页后端聚合**: ✅ 已完成 `/api/stats` 自定义路由，SQLite 原生聚合
 - [x] **补核心单元/E2E 测试**: ✅ 已完成四阶段补测（515 用例），新增 orderValidation.ts 提取 pb_hooks 核心逻辑并 100% 覆盖；CustomerOrderView / OrderFormView 交互测试大幅补充
-- [ ] **文档目录整理**: 根目录 7 个 md 文件移入 docs/；删除过时文档（DEPLOY_CUTLERY_FEATURE.md、CODE_AUDIT_REPORT_20250414.md、TEST_COVERAGE.md）；重命名 CHECKLIST.md → feature-checklist.md；创建 docs/README.md 索引；删除 .bak 备份文件
+- [x] **文档目录整理**: ✅ 根目录 md 文件移入 docs/（AGENTS.md、CHECKPOINT-20260421.md）；根目录保留 README.md（GitHub 入口）；过时文档和 .bak 文件已不存在
 - [x] **API 统一封装 + 错误标准化**: ✅ 已完成 `handleResponse` + 请求/响应拦截器
 - [x] **前端错误监控**: ✅ 已完成 Sentry 接入（生产环境自动上报）
 

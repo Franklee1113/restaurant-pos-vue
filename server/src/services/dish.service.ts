@@ -1,5 +1,6 @@
 import { getPocketBase } from '../plugins/pocketbase'
 import { NotFoundError } from '../utils/errors'
+import { escapePbString, filterValidPbIds } from '../utils/pocketbase'
 
 export interface DishRecord {
   id: string
@@ -36,8 +37,10 @@ export class DishService {
    */
   static async getByIds(ids: string[]): Promise<DishRecord[]> {
     if (ids.length === 0) return []
+    const validIds = filterValidPbIds(ids)
+    if (validIds.length === 0) return []
     const pb = getPocketBase()
-    const filter = ids.map((id) => `id='${id}'`).join(' || ')
+    const filter = validIds.map((id) => `id='${escapePbString(id)}'`).join(' || ')
     const records = await pb.collection('dishes').getFullList({ filter })
     return records.map((r) => ({
       id: r.id,

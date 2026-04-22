@@ -83,6 +83,19 @@ if [ -d "$NGINX_ROOT" ]; then
   log_info "前端文件已备份到 $BACKUP_DIR/pre-$TIMESTAMP"
 fi
 
+# Step 2b: 清理过期备份（保留最近 10 个）
+log_info "Step 2b/7: 清理过期备份..."
+BACKUP_COUNT=$(ls -1d "$BACKUP_DIR"/pre-* 2>/dev/null | wc -l)
+if [ "$BACKUP_COUNT" -gt 10 ]; then
+  ls -1td "$BACKUP_DIR"/pre-* | tail -n +11 | while read -r old_backup; do
+    sudo rm -rf "$old_backup"
+    log_info "已删除过期备份: $(basename "$old_backup")"
+  done
+  log_info "备份清理完成，保留最近 10 个"
+else
+  log_info "当前备份数量 $BACKUP_COUNT ≤ 10，无需清理"
+fi
+
 # Step 3: 部署前端文件
 log_info "Step 3/7: 部署前端文件..."
 if [ -d "$NGINX_ROOT/assets" ]; then

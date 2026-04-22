@@ -6,6 +6,7 @@ import { MoneyCalculator } from '../utils/money'
 import { mergeOrderItems } from '../utils/order-merge'
 import { generateOrderNo } from '../utils/order-status'
 import { NotFoundError, ForbiddenError, ConflictError, ValidationError } from '../utils/errors'
+import { escapePbString } from '../utils/pocketbase'
 
 export interface OrderItem {
   dishId: string
@@ -135,8 +136,9 @@ export class OrderService {
       }
 
       return this.toOrderResult(order)
-    } catch (err: any) {
-      if (err.status === 404) {
+    } catch (err) {
+      const error = err as { status?: number }
+      if (error.status === 404) {
         throw new NotFoundError('订单不存在')
       }
       throw err
@@ -153,7 +155,7 @@ export class OrderService {
 
     try {
       const records = await pb.collection('orders').getList(1, 1, {
-        filter: `tableNo='${tableNo}' && status!='completed' && status!='cancelled' && status!='settled'`,
+        filter: `tableNo='${escapePbString(tableNo)}' && status!='completed' && status!='cancelled' && status!='settled'`,
         sort: '-created',
       })
 
@@ -213,7 +215,7 @@ export class OrderService {
     }
 
     // 7. 构建更新数据
-    const updates: any = {
+    const updates: Record<string, unknown> = {
       items: mergedItems,
       totalAmount: total + cutleryTotalPrice,
       finalAmount: final + cutleryTotalPrice,
@@ -234,19 +236,19 @@ export class OrderService {
   /**
    * 转换 PocketBase 记录为 OrderResult（排除敏感字段）
    */
-  private static toOrderResult(record: any): OrderResult {
+  private static toOrderResult(record: Record<string, unknown>): OrderResult {
     return {
-      id: record.id,
-      orderNo: record.orderNo,
-      accessToken: record.accessToken,
-      tableNo: record.tableNo,
-      guests: record.guests,
-      items: Array.isArray(record.items) ? record.items : [],
-      status: record.status,
-      totalAmount: record.totalAmount,
-      finalAmount: record.finalAmount,
-      cutlery: record.cutlery || null,
-      created: record.created,
+      id: record.id as string,
+      orderNo: record.orderNo as string,
+      accessToken: record.accessToken as string,
+      tableNo: record.tableNo as string,
+      guests: record.guests as number,
+      items: Array.isArray(record.items) ? (record.items as OrderItem[]) : [],
+      status: record.status as string,
+      totalAmount: record.totalAmount as number,
+      finalAmount: record.finalAmount as number,
+      cutlery: (record.cutlery as CutleryInfo | null) || null,
+      created: record.created as string,
     }
   }
 }

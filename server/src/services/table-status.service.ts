@@ -1,4 +1,5 @@
 import { getPocketBase } from '../plugins/pocketbase'
+import { escapePbString } from '../utils/pocketbase'
 
 export interface TableStatusRecord {
   id: string
@@ -16,7 +17,7 @@ export class TableStatusService {
     const pb = getPocketBase()
     try {
       const records = await pb.collection('table_status').getList(1, 1, {
-        filter: `tableNo='${tableNo}'`,
+        filter: `tableNo='${escapePbString(tableNo)}'`,
       })
       if (records.items.length === 0) return null
       const r = records.items[0]
