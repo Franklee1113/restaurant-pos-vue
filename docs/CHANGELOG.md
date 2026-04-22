@@ -20,6 +20,7 @@
   - **编辑按钮**：completed 订单自动禁用，防止误操作
   - **实时更新**：SSE 订阅 + 10 秒轮询兜底，数据秒级同步
   - **组件拆分**：拆出 `TableCard.vue` 子组件，提升可维护性
+  - **声音提示**：检测 `cooked` 菜品数量增加时播放"嘀嘟"提示音（880Hz + 1100Hz 两声），区别于 KDS 的"叮咚叮"；首次加载不触发；兼容浏览器自动播放策略（见下方修复）
   - **零后端改动**：纯前端功能，仅新增路由 + 导航 + 页面 + 组件 + 测试
   - **测试覆盖**：12 个组件测试，覆盖数据加载、复合状态、排序、筛选、空状态、标记上菜、按钮禁用
 
@@ -47,6 +48,12 @@
   - 启动 public-api 服务恢复
   - 新增 `scripts/healthcheck.sh`：每 2 分钟通过 cron 自动检查 Nginx / PocketBase / Public API / 磁盘空间，异常自动重启并记录日志到 `/var/log/restaurant-pos-healthcheck.log`
 
+### 修复（浏览器兼容性 — 声音提示自动播放策略）
+- **Windows / 手机端桌台全景无提示音**：现代浏览器要求用户先与页面交互才能解锁音频播放，原代码每次播放时 `new AudioContext()` 导致新上下文始终处于 `suspended` 状态，声音被浏览器静默阻断
+  - `TableVisualizationView.vue` / `KitchenDisplayView.vue`：改为**预创建持久化 AudioContext**，页面挂载时即初始化；监听首次 `click`/`touchstart` 调用 `resume()` 解锁；`playAlertSound()` 播放前检查 `ctx.state !== 'suspended'`
+  - 桌台全景新增 🔕/🔔 声音开关按钮（右上角），状态持久化到 `localStorage`，用户手动控制启用/禁用；开启时即时播放测试音确认设备出声
+  - KDS 依赖厨师点击"开始制作"按钮自然解锁音频，首次新订单到达前无声音符合浏览器安全策略预期
+
 ### 修复（UI）
 - **订单详情页两个"取消订单"按钮**：`StatusFlow` 已包含 `cancelled`，`v-for` 遍历已渲染一个取消按钮；下方单独的 `v-if="...includes(CANCELLED)"` 按钮重复。删除多余按钮，仅保留 `v-for` 自动渲染的一个
 
@@ -66,7 +73,7 @@
   - `DialogModal.vue`：`typeClass` 改用 `computed()` 包裹，修复响应式更新失效
   - `CustomerOrderView.vue`：会话恢复和自动加入订单后关闭 `showGuestSetup` 弹窗；`dining` 状态订单不再被误判为已结束
 - **类型检查修复**：`useClearTable.spec.ts` `mockResolvedValue(undefined)` → `mockResolvedValue({} as any)`；`@ts-ignore` → `@ts-expect-error` 符合 ESLint 规范
-- **最终覆盖率**：Statements 88.77% / Branch 79.34% / Functions 80.5% / Lines 90.71%；30 个测试文件、582 个用例通过、2 个 skipped（jsdom 限制）、0 失败
+- **最终覆盖率**：Statements 88.77% / Branch 79.34% / Functions 80.5% / Lines 90.71%；31 个测试文件、**594** 个用例通过、2 个 skipped（jsdom 限制）、0 失败
 
 ## [1.1.3] - 2026-04-21
 

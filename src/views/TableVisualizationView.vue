@@ -32,6 +32,65 @@ const unsubscribeRealtime = ref<(() => void) | null>(null)
 const lastCookedCount = ref(0)
 const hasInitialData = ref(false)
 
+// ── Audio Context（处理浏览器自动播放策略） ──
+const audioCtx = ref<AudioContext | null>(null)
+const audioEnabled = ref(false)
+const STORAGE_KEY_AUDIO = 'tableviz_audio_enabled'
+
+function initAudioContext() {
+  try {
+    if (audioCtx.value) return
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+    if (!AudioCtx) return
+    audioCtx.value = new AudioCtx()
+  } catch {
+    // ignore
+  }
+}
+
+function unlockAudio() {
+  if (!audioCtx.value) initAudioContext()
+  const ctx = audioCtx.value
+  if (!ctx) return
+  if (ctx.state === 'suspended') {
+    ctx.resume().then(() => {
+      // 成功解锁后首次尝试播放一个极短静音来确认
+      playTestTone(0.001)
+    }).catch(() => {
+      // ignore
+    })
+  }
+}
+
+function toggleAudio() {
+  audioEnabled.value = !audioEnabled.value
+  localStorage.setItem(STORAGE_KEY_AUDIO, String(audioEnabled.value))
+  if (audioEnabled.value) {
+    unlockAudio()
+    // 给用户即时反馈
+    setTimeout(() => playTestTone(), 50)
+  }
+}
+
+function playTestTone(duration = 0.15) {
+  try {
+    const ctx = audioCtx.value
+    if (!ctx) return
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.type = 'sine'
+    osc.frequency.value = 880
+    gain.gain.setValueAtTime(0.1, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration)
+    osc.start(ctx.currentTime)
+    osc.stop(ctx.currentTime + duration)
+  } catch {
+    // ignore
+  }
+}
+
 // ── Derived ──
 const tableStatusMap = computed(() => {
   const map = new Map<string, TableStatus>()
@@ -111,27 +170,34 @@ const stats = computed(() => {
 })
 
 // ── Methods ──
+function playTones(ctx: AudioContext) {
+  const playTone = (freq: number, start: number, duration: number) => {
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.type = 'sine'
+    osc.frequency.value = freq
+    gain.gain.setValueAtTime(0.12, ctx.currentTime + start)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration)
+    osc.start(ctx.currentTime + start)
+    osc.stop(ctx.currentTime + start + duration)
+  }
+  // 嘀嘟 — 两声提示待上菜
+  playTone(880, 0, 0.15)
+  playTone(1100, 0.2, 0.15)
+}
+
 function playAlertSound() {
   try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
-    if (!AudioCtx) return
-    const ctx = new AudioCtx()
-    const playTone = (freq: number, start: number, duration: number) => {
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.connect(gain)
-      gain.connect(ctx.destination)
-      osc.type = 'sine'
-      osc.frequency.value = freq
-      gain.gain.setValueAtTime(0.12, ctx.currentTime + start)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration)
-      osc.start(ctx.currentTime + start)
-      osc.stop(ctx.currentTime + start + duration)
+    if (!audioEnabled.value) return
+    const ctx = audioCtx.value
+    if (!ctx) return
+    if (ctx.state === 'suspended') {
+      ctx.resume().then(() => playTones(ctx)).catch(() => {})
+      return
     }
-    // 嘀嘟 — 两声提示待上菜
-    playTone(880, 0, 0.15)
-    playTone(1100, 0.2, 0.15)
-    setTimeout(() => ctx.close(), 600)
+    playTones(ctx)
   } catch {
     // ignore
   }
@@ -147,6 +213,9 @@ function checkNewCooked() {
   lastCookedCount.value = currentCooked
   hasInitialData.value = true
 }
+
+// 监听用户交互以解锁音频（浏览器自动播放策略要求）
+let unlockHandler: (() => void) | null = null
 
 async function loadData() {
   loading.value = true
@@ -206,6 +275,17 @@ const { start: startAutoRefresh, stop: stopAutoRefresh } = useAutoRefresh(loadDa
 
 // ── Lifecycle ──
 onMounted(() => {
+  // 读取用户之前的音频偏好
+  audioEnabled.value = localStorage.getItem(STORAGE_KEY_AUDIO) === 'true'
+  initAudioContext()
+
+  // 监听首次用户交互以解锁音频上下文
+  unlockHandler = () => {
+    unlockAudio()
+  }
+  document.addEventListener('click', unlockHandler, { once: true })
+  document.addEventListener('touchstart', unlockHandler, { once: true })
+
   loadData()
   subscribeToOrders('', handleRealtimeUpdate)
     .then((unsub) => {
@@ -222,6 +302,14 @@ onUnmounted(() => {
     unsubscribeRealtime.value = null
   }
   stopAutoRefresh()
+  if (unlockHandler) {
+    document.removeEventListener('click', unlockHandler)
+    document.removeEventListener('touchstart', unlockHandler)
+  }
+  if (audioCtx.value) {
+    audioCtx.value.close().catch(() => {})
+    audioCtx.value = null
+  }
 })
 </script>
 
@@ -291,6 +379,16 @@ onUnmounted(() => {
       >
         ⟳ 刷新
       </button>
+      <button
+        class="px-3 py-2 text-sm font-medium rounded-lg border transition-all active:scale-[0.98]"
+        :class="audioEnabled
+          ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+          : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'"
+        :title="audioEnabled ? '点击关闭声音提示' : '点击开启声音提示'"
+        @click="toggleAudio"
+      >
+        {{ audioEnabled ? '🔔' : '🔕' }}
+      </button>
     </div>
 
     <!-- Loading Skeleton -->
@@ -323,7 +421,6 @@ onUnmounted(() => {
         :current-order-id="card.currentOrderId"
         :order="card.order"
         :extra-orders="card.extraOrders"
-        @mark-served="loadData"
         @refresh="loadData"
       />
     </div>

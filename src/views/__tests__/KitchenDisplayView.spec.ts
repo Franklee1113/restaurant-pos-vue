@@ -42,6 +42,7 @@ vi.mock('@/api/pocketbase', async () => {
 
 // Web Audio API mock
 const audioContextMock = {
+  state: 'running',
   createOscillator: vi.fn(() => ({
     connect: vi.fn(),
     type: 'sine',
@@ -59,6 +60,7 @@ const audioContextMock = {
   currentTime: 0,
   destination: {},
   close: vi.fn(),
+  resume: vi.fn(() => Promise.resolve()),
 }
 
 Object.defineProperty(globalThis, 'AudioContext', {
@@ -332,7 +334,9 @@ describe('KitchenDisplayView', () => {
     mountKitchenDisplay()
     await flushPromises()
 
-    expect(globalThis.AudioContext).not.toHaveBeenCalled()
+    // AudioContext is created eagerly in onMounted for autoplay policy handling,
+    // but no oscillator should be started since no new pending items on initial load
+    expect(audioContextMock.createOscillator).not.toHaveBeenCalled()
   })
 
   // ── Overdue Detection ──

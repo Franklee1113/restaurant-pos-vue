@@ -18,7 +18,6 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'markServed', orderId: string, itemIndex: number): void
   (e: 'refresh'): void
 }>()
 
@@ -203,7 +202,7 @@ const isEditDisabled = computed(() => {
             </div>
 
             <!-- 状态标签 + 备注 -->
-            <div class="ml-4.5 mt-0.5 flex flex-wrap items-center gap-2">
+            <div class="ml-[1.125rem] mt-0.5 flex flex-wrap items-center gap-2">
               <span
                 class="text-[11px]"
                 :class="{
@@ -221,7 +220,7 @@ const isEditDisabled = computed(() => {
             </div>
 
             <!-- 标记上菜按钮 -->
-            <div v-if="item.status === 'cooked'" class="ml-4.5 mt-1">
+            <div v-if="item.status === 'cooked'" class="ml-[1.125rem] mt-1">
               <button
                 class="px-2 py-0.5 text-[11px] font-medium text-green-700 bg-green-50 border border-green-200 rounded hover:bg-green-100 active:scale-[0.98] transition-transform"
                 @click="handleMarkServed(item.originalIndex)"
