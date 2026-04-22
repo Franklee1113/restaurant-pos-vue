@@ -116,7 +116,7 @@ describe('OrderStatus', () => {
 
   it('订单号在 crypto 不可用时仍能生成', () => {
     const originalGetRandomValues = globalThis.crypto.getRandomValues
-    // @ts-ignore
+    // @ts-expect-error: test-only simulation of missing crypto API
     globalThis.crypto.getRandomValues = undefined
     const orderNo = generateOrderNo()
     expect(orderNo.startsWith('O')).toBe(true)

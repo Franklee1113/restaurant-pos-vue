@@ -46,9 +46,8 @@ jobs:
       - name: Type check
         run: npm run type-check
 
-      # Uncomment when ESLint is configured
-      # - name: Lint
-      #   run: npm run lint
+      - name: Lint
+        run: npm run lint
 
   unit-tests:
     name: Unit Tests

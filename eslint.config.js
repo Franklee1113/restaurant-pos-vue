@@ -19,6 +19,47 @@ export default defineConfig([
     name: 'app/files-to-ignore',
     ignores: ['**/dist/**', '**/dist-ssr/**', '**/coverage/**', '**/playwright-report/**', '**/pb_migrations/**', 'src/types/pocketbase-types.ts'],
   },
+  {
+    name: 'app/pb-hooks',
+    files: ['pb_hooks/**/*.js'],
+    languageOptions: {
+      globals: {
+        onRecordBeforeCreateRequest: 'readonly',
+        onRecordBeforeUpdateRequest: 'readonly',
+        onRecordAfterCreateRequest: 'readonly',
+        onRecordAfterUpdateRequest: 'readonly',
+        routerAdd: 'readonly',
+        $app: 'readonly',
+        $security: 'readonly',
+      },
+    },
+    rules: {
+      'no-console': 'off',
+    },
+  },
+  {
+    name: 'app/service-worker',
+    files: ['public/sw.js'],
+    languageOptions: {
+      globals: {
+        self: 'readonly',
+        caches: 'readonly',
+        clients: 'readonly',
+        fetch: 'readonly',
+        Response: 'readonly',
+        URL: 'readonly',
+      },
+    },
+  },
+  {
+    name: 'app/pm2-config',
+    files: ['server/ecosystem.config.js'],
+    languageOptions: {
+      globals: {
+        module: 'readonly',
+      },
+    },
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   ...pluginVue.configs['flat/essential'],

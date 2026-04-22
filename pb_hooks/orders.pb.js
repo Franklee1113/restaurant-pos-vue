@@ -18,21 +18,34 @@ onRecordBeforeCreateRequest(
         record.set('accessToken', $security.randomString(43))
       }
 
-      // 内联：解析 JSON 字段（PB VM 中返回 []byte）
+      // 内联：解析 JSON 字段（兼容 PB VM 返回 []byte / string / object）
       function parseJSONField(record, fieldName, defaultValue) {
         try {
           const raw = record.get(fieldName)
-          if (raw && raw.length > 0) {
+          if (raw == null) return defaultValue === undefined ? [] : defaultValue
+
+          // 某些 PB 版本直接返回解析后的对象/数组
+          if (typeof raw === 'object') {
+            return raw
+          }
+
+          // 字符串形式（JSON 文本）
+          if (typeof raw === 'string') {
+            if (raw.length > 0) return JSON.parse(raw)
+            return defaultValue === undefined ? [] : defaultValue
+          }
+
+          // []byte 形式（PB VM 默认行为）
+          if (typeof raw.length === 'number' && raw.length > 0) {
             let s = ''
             for (let i = 0; i < raw.length; i++) {
-              s += String.fromCharCode(raw[i])
+              const code = typeof raw[i] === 'number' ? raw[i] : raw[i].charCodeAt(0)
+              s += String.fromCharCode(code)
             }
-            if (s.length > 0) {
-              return JSON.parse(s)
-            }
+            if (s.length > 0) return JSON.parse(s)
           }
         } catch (e) {
-          console.error('parseJSONField error (' + fieldName + '):', e)
+          console.error('parseJSONField error (' + fieldName + '):', e, 'raw:', JSON.stringify(record.get(fieldName)))
         }
         return defaultValue === undefined ? [] : defaultValue
       }
@@ -95,16 +108,18 @@ onRecordBeforeCreateRequest(
         return 0
       }
 
-      // 内联：重算餐具费
+      // 内联：重算餐具费（防御 undefined/NaN）
       function recalculateCutlery(record, cutlery) {
-        if (!cutlery || cutlery.quantity <= 0 || cutlery.type === 'free') {
+        const qty = (cutlery && typeof cutlery.quantity === 'number' && !isNaN(cutlery.quantity)) ? cutlery.quantity : 0
+        const type = (cutlery && cutlery.type) ? cutlery.type : 'free'
+        if (qty <= 0 || type === 'free') {
           return { cutleryTotalPrice: 0, updatedCutlery: cutlery }
         }
         const unitPrice = getCutleryUnitPrice()
-        const totalPrice = Math.round(cutlery.quantity * unitPrice * 100) / 100
+        const totalPrice = Math.round(qty * unitPrice * 100) / 100
         const updatedCutlery = {
-          quantity: cutlery.quantity,
-          type: cutlery.type,
+          quantity: qty,
+          type: type,
           unitPrice: unitPrice,
           totalPrice: totalPrice,
         }
@@ -175,8 +190,9 @@ onRecordBeforeCreateRequest(
       record.set('discount', discountCents / 100)
       record.set('finalAmount', finalCents / 100)
     } catch (err) {
-      console.error('HOOK_BEFORE_CREATE_ERROR:', err)
-      throw err
+      console.error('HOOK_BEFORE_CREATE_ERROR:', err, 'stack:', err.stack)
+      // 将 JS Error 转换为 PB 可识别的 ApiError，确保前端能看到具体错误
+      throw $app.newBadRequestError('订单创建校验失败: ' + (err.message || '未知错误'), {})
     }
   },
   'orders',
@@ -190,21 +206,34 @@ onRecordBeforeUpdateRequest(
     try {
       const record = e.record
 
-      // 内联：解析 JSON 字段
+      // 内联：解析 JSON 字段（兼容 PB VM 返回 []byte / string / object）
       function parseJSONField(record, fieldName, defaultValue) {
         try {
           const raw = record.get(fieldName)
-          if (raw && raw.length > 0) {
+          if (raw == null) return defaultValue === undefined ? [] : defaultValue
+
+          // 某些 PB 版本直接返回解析后的对象/数组
+          if (typeof raw === 'object') {
+            return raw
+          }
+
+          // 字符串形式（JSON 文本）
+          if (typeof raw === 'string') {
+            if (raw.length > 0) return JSON.parse(raw)
+            return defaultValue === undefined ? [] : defaultValue
+          }
+
+          // []byte 形式（PB VM 默认行为）
+          if (typeof raw.length === 'number' && raw.length > 0) {
             let s = ''
             for (let i = 0; i < raw.length; i++) {
-              s += String.fromCharCode(raw[i])
+              const code = typeof raw[i] === 'number' ? raw[i] : raw[i].charCodeAt(0)
+              s += String.fromCharCode(code)
             }
-            if (s.length > 0) {
-              return JSON.parse(s)
-            }
+            if (s.length > 0) return JSON.parse(s)
           }
         } catch (e) {
-          console.error('parseJSONField error (' + fieldName + '):', e)
+          console.error('parseJSONField error (' + fieldName + '):', e, 'raw:', JSON.stringify(record.get(fieldName)))
         }
         return defaultValue === undefined ? [] : defaultValue
       }
@@ -443,8 +472,8 @@ onRecordBeforeUpdateRequest(
         }
       }
     } catch (err) {
-      console.error('HOOK_BEFORE_UPDATE_ERROR:', err)
-      throw err
+      console.error('HOOK_BEFORE_UPDATE_ERROR:', err, 'stack:', err.stack)
+      throw $app.newBadRequestError('订单更新校验失败: ' + (err.message || '未知错误'), {})
     }
   },
   'orders',
@@ -527,6 +556,40 @@ onRecordAfterUpdateRequest(
       }
     } catch (err) {
       console.error('table_status sync error (update):', err)
+    }
+  },
+  'orders',
+)
+
+// ─────────────────────────────────────────────────────────────
+// 删除订单后：自动清台（防止直接删除订单产生幽灵占用）
+// ─────────────────────────────────────────────────────────────
+onRecordAfterDeleteRequest(
+  (e) => {
+    const record = e.record
+    const tableNo = record.get('tableNo')
+    if (!tableNo) return
+
+    try {
+      const records = $app.dao().findRecordsByFilter(
+        'table_status',
+        'tableNo = {:tableNo}',
+        '',
+        1,
+        0,
+        { tableNo: tableNo },
+      )
+
+      if (records && records.length > 0) {
+        const ts = records[0]
+        if (ts.get('currentOrderId') === record.id) {
+          ts.set('status', 'idle')
+          ts.set('currentOrderId', '')
+          $app.dao().saveRecord(ts)
+        }
+      }
+    } catch (err) {
+      console.error('table_status sync error (delete):', err)
     }
   },
   'orders',

@@ -7,6 +7,15 @@
 
 ## [Unreleased]
 
+### 修复（P0 生产故障）
+- **新建订单返回 400 `data: {}` 导致"无响应"**：`pb_hooks/orders.pb.js` 中 `parseJSONField` 与 PocketBase v0.22.27 Goja VM 的 JSON 字段返回类型不兼容，Hook 执行异常后 PocketBase 返回空 data 的通用 400 错误
+  - `parseJSONField` 增强为三模式兼容：优先识别已解析的 `object`/`array`、其次 `string`（JSON 文本）、最后回退到 `[]byte`（PB VM 默认行为）
+  - `recalculateCutlery` 防御 `cutlery.quantity` 为 `undefined` 时产生 `NaN` 的边界情况
+  - 顶层 catch 将 `throw err` 改为 `$app.newBadRequestError(...)`，确保前端 Toast 能展示具体错误信息，不再"无响应"
+- **删除订单后产生幽灵桌台占用**：`table_status` 中 `currentOrderId` 指向已删除订单，状态仍为 `dining`，导致同一桌号无法再次新建订单
+  - 新增 `onRecordAfterDeleteRequest` Hook：删除订单时若 `table_status.currentOrderId` 匹配被删订单，自动重置为 `idle`
+  - 原因：系统仅处理 `completed→settled` 和 `cancelled` 时的自动清台，未覆盖"直接删除订单"场景
+
 ### 修复（业务逻辑一致性）
 - **顾客无法给服务员创建的订单加菜（P1）**：`pb_hooks/orders.pb.js` 在 `onRecordBeforeCreateRequest` 中为**所有新订单**生成 `accessToken`（`$security.randomString(43)`），消除顾客端/员工端订单创建的双轨制差异。服务员建单后顾客扫码即可正常追加菜品
 

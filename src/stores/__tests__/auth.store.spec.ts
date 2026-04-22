@@ -8,9 +8,9 @@ describe('auth.store', () => {
     setActivePinia(createPinia())
     localStorage.clear()
     vi.stubGlobal('fetch', vi.fn())
-    // @ts-ignore
+    // @ts-expect-error: test-only override of read-only location
     delete window.location
-    // @ts-ignore
+    // @ts-expect-error: test-only override of read-only location
     window.location = { href: '' } as Location
   })
 
