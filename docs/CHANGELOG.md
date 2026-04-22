@@ -15,6 +15,10 @@
 - **删除订单后产生幽灵桌台占用**：`table_status` 中 `currentOrderId` 指向已删除订单，状态仍为 `dining`，导致同一桌号无法再次新建订单
   - 新增 `onRecordAfterDeleteRequest` Hook：删除订单时若 `table_status.currentOrderId` 匹配被删订单，自动重置为 `idle`
   - 原因：系统仅处理 `completed→settled` 和 `cancelled` 时的自动清台，未覆盖"直接删除订单"场景
+- **KDS 更新菜品状态后订单整体状态不同步（P0）**：厨师大屏标记菜品为"制作中"后，订单管理仍显示"待确认"
+  - 根因：`parseJSONField` 首版修复中 `typeof raw === 'object'` 优先返回导致 `[]byte` 被误识别为已解析数组；`Array.isArray([]byte)` 为 `false` 后 `newItems` fallback 为 `oldItems`，`itemStatusChanged` 检测永远为 `false`
+  - `parseJSONField` 二次修正：通过首元素类型区分——`typeof raw[0] === 'number'` 为 `[]byte`（遍历解码），否则为已解析 JS 数组（直接返回）
+  - 状态推断增加兜底逻辑：`shouldInferStatus = itemStatusChanged || (活跃状态 && newItems.length > 0)`，即使 `parseJSONField` 异常，活跃期订单也会强制执行状态推断，避免状态永久卡死
 
 ### 修复（业务逻辑一致性）
 - **顾客无法给服务员创建的订单加菜（P1）**：`pb_hooks/orders.pb.js` 在 `onRecordBeforeCreateRequest` 中为**所有新订单**生成 `accessToken`（`$security.randomString(43)`），消除顾客端/员工端订单创建的双轨制差异。服务员建单后顾客扫码即可正常追加菜品

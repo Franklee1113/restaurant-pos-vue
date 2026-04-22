@@ -24,28 +24,31 @@ onRecordBeforeCreateRequest(
           const raw = record.get(fieldName)
           if (raw == null) return defaultValue === undefined ? [] : defaultValue
 
-          // 某些 PB 版本直接返回解析后的对象/数组
-          if (typeof raw === 'object') {
-            return raw
-          }
-
           // 字符串形式（JSON 文本）
           if (typeof raw === 'string') {
             if (raw.length > 0) return JSON.parse(raw)
             return defaultValue === undefined ? [] : defaultValue
           }
 
-          // []byte 形式（PB VM 默认行为）
-          if (typeof raw.length === 'number' && raw.length > 0) {
-            let s = ''
-            for (let i = 0; i < raw.length; i++) {
-              const code = typeof raw[i] === 'number' ? raw[i] : raw[i].charCodeAt(0)
-              s += String.fromCharCode(code)
+          // 对象形式：区分 []byte（元素为数字） vs 已解析的 JS 数组/对象（元素为 object/string）
+          if (typeof raw === 'object' && typeof raw.length === 'number') {
+            if (raw.length === 0) return defaultValue === undefined ? [] : defaultValue
+
+            // 首元素为数字 → []byte，需要遍历解码
+            if (typeof raw[0] === 'number') {
+              let s = ''
+              for (let i = 0; i < raw.length; i++) {
+                s += String.fromCharCode(raw[i])
+              }
+              if (s.length > 0) return JSON.parse(s)
+              return defaultValue === undefined ? [] : defaultValue
             }
-            if (s.length > 0) return JSON.parse(s)
+
+            // 首元素为对象/字符串 → 已解析的 JS 数组，直接返回
+            return raw
           }
         } catch (e) {
-          console.error('parseJSONField error (' + fieldName + '):', e, 'raw:', JSON.stringify(record.get(fieldName)))
+          console.error('parseJSONField error (' + fieldName + '):', e, 'raw type:', typeof raw)
         }
         return defaultValue === undefined ? [] : defaultValue
       }
@@ -212,28 +215,31 @@ onRecordBeforeUpdateRequest(
           const raw = record.get(fieldName)
           if (raw == null) return defaultValue === undefined ? [] : defaultValue
 
-          // 某些 PB 版本直接返回解析后的对象/数组
-          if (typeof raw === 'object') {
-            return raw
-          }
-
           // 字符串形式（JSON 文本）
           if (typeof raw === 'string') {
             if (raw.length > 0) return JSON.parse(raw)
             return defaultValue === undefined ? [] : defaultValue
           }
 
-          // []byte 形式（PB VM 默认行为）
-          if (typeof raw.length === 'number' && raw.length > 0) {
-            let s = ''
-            for (let i = 0; i < raw.length; i++) {
-              const code = typeof raw[i] === 'number' ? raw[i] : raw[i].charCodeAt(0)
-              s += String.fromCharCode(code)
+          // 对象形式：区分 []byte（元素为数字） vs 已解析的 JS 数组/对象（元素为 object/string）
+          if (typeof raw === 'object' && typeof raw.length === 'number') {
+            if (raw.length === 0) return defaultValue === undefined ? [] : defaultValue
+
+            // 首元素为数字 → []byte，需要遍历解码
+            if (typeof raw[0] === 'number') {
+              let s = ''
+              for (let i = 0; i < raw.length; i++) {
+                s += String.fromCharCode(raw[i])
+              }
+              if (s.length > 0) return JSON.parse(s)
+              return defaultValue === undefined ? [] : defaultValue
             }
-            if (s.length > 0) return JSON.parse(s)
+
+            // 首元素为对象/字符串 → 已解析的 JS 数组，直接返回
+            return raw
           }
         } catch (e) {
-          console.error('parseJSONField error (' + fieldName + '):', e, 'raw:', JSON.stringify(record.get(fieldName)))
+          console.error('parseJSONField error (' + fieldName + '):', e, 'raw type:', typeof raw)
         }
         return defaultValue === undefined ? [] : defaultValue
       }
@@ -424,7 +430,11 @@ onRecordBeforeUpdateRequest(
       }
 
       // 自动推断并更新订单整体状态
-      if (itemStatusChanged) {
+      // 兜底：活跃状态订单始终执行状态推断，防止 parseJSONField 异常导致状态不更新
+      const shouldInferStatus = itemStatusChanged ||
+        (['pending', 'cooking', 'serving'].indexOf(oldStatus) !== -1 && newItems.length > 0)
+
+      if (shouldInferStatus) {
         let allServed = true
         let allDone = true
         let anyCooking = false
