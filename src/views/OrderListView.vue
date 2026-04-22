@@ -562,10 +562,10 @@ function exportExcel() {
 
     <!-- Desktop Table -->
     <div class="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
-      <table class="min-w-[860px] w-full divide-y divide-gray-200 table-fixed">
+      <table class="min-w-[920px] w-full divide-y divide-gray-200 table-fixed">
         <thead class="bg-gray-50">
           <tr>
-            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase w-28">订单号</th>
+            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase w-36">订单号</th>
             <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase w-16">桌号</th>
             <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase w-14">人数</th>
             <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase w-14">菜品数</th>
@@ -603,7 +603,7 @@ function exportExcel() {
             </td>
           </tr>
           <tr v-for="order in orders" :key="order.id" class="hover:bg-gray-50 transition-colors">
-            <td class="px-3 py-3 text-sm text-gray-900 font-medium truncate" :title="order.orderNo">{{ order.orderNo || '-' }}</td>
+            <td class="px-3 py-3 text-sm text-gray-900 font-medium">{{ order.orderNo || '-' }}</td>
             <td class="px-3 py-3 text-sm text-gray-700">{{ order.tableNo || '-' }}</td>
             <td class="px-3 py-3 text-sm text-gray-700">{{ order.guests || '-' }}人</td>
             <td class="px-3 py-3 text-sm text-gray-700">{{ order.items?.length || 0 }}道</td>
@@ -710,7 +710,7 @@ function exportExcel() {
         class="bg-white rounded-xl shadow-sm border border-gray-100 p-4"
       >
         <div class="flex items-center justify-between mb-2">
-          <div class="font-semibold text-gray-900">{{ order.orderNo }}</div>
+          <div class="font-semibold text-gray-900 break-all">{{ order.orderNo }}</div>
           <div class="flex items-center gap-1.5">
             <span
               class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset"
