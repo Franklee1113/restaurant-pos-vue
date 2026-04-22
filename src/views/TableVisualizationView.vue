@@ -29,6 +29,8 @@ const error = ref('')
 const searchKeyword = ref('')
 const filterCookedOnly = ref(false)
 const unsubscribeRealtime = ref<(() => void) | null>(null)
+const lastCookedCount = ref(0)
+const hasInitialData = ref(false)
 
 // ── Derived ──
 const tableStatusMap = computed(() => {
@@ -109,6 +111,43 @@ const stats = computed(() => {
 })
 
 // ── Methods ──
+function playAlertSound() {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+    if (!AudioCtx) return
+    const ctx = new AudioCtx()
+    const playTone = (freq: number, start: number, duration: number) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.type = 'sine'
+      osc.frequency.value = freq
+      gain.gain.setValueAtTime(0.12, ctx.currentTime + start)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration)
+      osc.start(ctx.currentTime + start)
+      osc.stop(ctx.currentTime + start + duration)
+    }
+    // 嘀嘟 — 两声提示待上菜
+    playTone(880, 0, 0.15)
+    playTone(1100, 0.2, 0.15)
+    setTimeout(() => ctx.close(), 600)
+  } catch {
+    // ignore
+  }
+}
+
+function checkNewCooked() {
+  const currentCooked = tableCards.value.reduce((sum, c) => {
+    return sum + (c.order?.items || []).filter((i) => i.status === 'cooked').length
+  }, 0)
+  if (hasInitialData.value && currentCooked > lastCookedCount.value) {
+    playAlertSound()
+  }
+  lastCookedCount.value = currentCooked
+  hasInitialData.value = true
+}
+
 async function loadData() {
   loading.value = true
   error.value = ''
@@ -123,6 +162,7 @@ async function loadData() {
 
     if (diningTables.length === 0) {
       activeOrders.value = []
+      checkNewCooked()
       return
     }
 
@@ -132,6 +172,7 @@ async function loadData() {
     const filter = `(${tableFilter}) && status!='${OrderStatus.SETTLED}' && status!='${OrderStatus.CANCELLED}'`
     const orderRes = await OrderAPI.getOrders(1, 100, filter)
     activeOrders.value = orderRes.items
+    checkNewCooked()
   } catch (err: unknown) {
     error.value = err instanceof Error ? err.message : '加载失败'
     toast.error(error.value)
@@ -154,6 +195,8 @@ function handleRealtimeUpdate(record: Order) {
       activeOrders.value.push(record)
     }
   }
+  // 延迟检测，等待 Vue 响应式更新完成后计算 tableCards
+  setTimeout(() => checkNewCooked(), 0)
 }
 
 const { start: startAutoRefresh, stop: stopAutoRefresh } = useAutoRefresh(loadData, {
