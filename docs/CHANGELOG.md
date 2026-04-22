@@ -19,6 +19,12 @@
   - 根因：`parseJSONField` 首版修复中 `typeof raw === 'object'` 优先返回导致 `[]byte` 被误识别为已解析数组；`Array.isArray([]byte)` 为 `false` 后 `newItems` fallback 为 `oldItems`，`itemStatusChanged` 检测永远为 `false`
   - `parseJSONField` 二次修正：通过首元素类型区分——`typeof raw[0] === 'number'` 为 `[]byte`（遍历解码），否则为已解析 JS 数组（直接返回）
   - 状态推断增加兜底逻辑：`shouldInferStatus = itemStatusChanged || (活跃状态 && newItems.length > 0)`，即使 `parseJSONField` 异常，活跃期订单也会强制执行状态推断，避免状态永久卡死
+- **顾客端扫码加菜 502 Bad Gateway + 提示"需要选择用餐人数"（P0）**：`public-api.service`（Node.js Fastify，端口 3000）inactive 近 4 小时，Nginx 代理 `/api/public/*` 返回 502；顾客端 `getOrdersByTable` 失败 → `currentOrder.value` 为 null → fallback 显示人数选择弹窗
+  - 启动 public-api 服务恢复
+  - 新增 `scripts/healthcheck.sh`：每 2 分钟通过 cron 自动检查 Nginx / PocketBase / Public API / 磁盘空间，异常自动重启并记录日志到 `/var/log/restaurant-pos-healthcheck.log`
+
+### 修复（UI）
+- **订单详情页两个"取消订单"按钮**：`StatusFlow` 已包含 `cancelled`，`v-for` 遍历已渲染一个取消按钮；下方单独的 `v-if="...includes(CANCELLED)"` 按钮重复。删除多余按钮，仅保留 `v-for` 自动渲染的一个
 
 ### 修复（业务逻辑一致性）
 - **顾客无法给服务员创建的订单加菜（P1）**：`pb_hooks/orders.pb.js` 在 `onRecordBeforeCreateRequest` 中为**所有新订单**生成 `accessToken`（`$security.randomString(43)`），消除顾客端/员工端订单创建的双轨制差异。服务员建单后顾客扫码即可正常追加菜品

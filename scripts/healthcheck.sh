@@ -1,72 +1,71 @@
 #!/bin/bash
 # =============================================================================
-# 智能点菜系统 - 健康检查脚本
-# 用法: 建议通过 crontab 每分钟执行一次
-#   * * * * * /var/www/restaurant-pos-vue/scripts/healthcheck.sh >> /var/log/healthcheck.log 2>&1
+# 智能点菜系统 - 服务健康检查
+# 检查项: Nginx / PocketBase / Public API / 磁盘空间
+# 失败时自动重启并告警
 # =============================================================================
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-ALERT_LOG="/var/log/healthcheck.alert"
-CHECK_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+DATE=$(date '+%Y-%m-%d %H:%M:%S')
+LOG_FILE="/var/log/restaurant-pos-healthcheck.log"
+ALERT_WEBHOOK=""  # 如需企业微信/钉钉告警，在此配置
 
-# 检查项状态
-NGINX_OK=false
-POCKETBASE_OK=false
-API_OK=false
+function log() {
+  echo "[$DATE] $1" | tee -a "$LOG_FILE"
+}
 
-# 1. 检查 Nginx
-if sudo systemctl is-active --quiet nginx; then
-  NGINX_OK=true
-fi
+function check_service() {
+  local name=$1
+  local url=$2
+  local expected_code=${3:-200}
 
-# 2. 检查 PocketBase
-if sudo systemctl is-active --quiet pocketbase; then
-  POCKETBASE_OK=true
-fi
+  local actual_code
+  actual_code=$(curl -s -o /dev/null -w "%{http_code}" "$url" || echo "000")
 
-# 3. 检查 API 可用性
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8090/api/health 2>/dev/null || echo "000")
-if [ "$HTTP_CODE" = "200" ]; then
-  API_OK=true
-fi
-
-# 判断整体状态
-if [ "$NGINX_OK" = true ] && [ "$POCKETBASE_OK" = true ] && [ "$API_OK" = true ]; then
-  echo "[$CHECK_TIME] ✅ HEALTHY - Nginx: OK, PocketBase: OK, API: OK"
-  exit 0
-fi
-
-# 不健康，记录告警日志
-ALERT_MSG="[$CHECK_TIME] ❌ UNHEALTHY - Nginx: $NGINX_OK, PocketBase: $POCKETBASE_OK, API: $API_OK (HTTP $HTTP_CODE)"
-echo "$ALERT_MSG" | tee -a "$ALERT_LOG" || true
-
-# 自动恢复尝试：尝试重启失败的服务
-if [ "$NGINX_OK" = false ]; then
-  echo "[$CHECK_TIME] ⚠️ 尝试自动重启 Nginx..." | tee -a "$ALERT_LOG" || true
-  if ! sudo systemctl restart nginx; then
-    echo "[$CHECK_TIME] ❌ Nginx 重启失败" | tee -a "$ALERT_LOG" || true
+  if [ "$actual_code" != "$expected_code" ]; then
+    log "[FAIL] $name: HTTP $actual_code (expected $expected_code)"
+    return 1
   fi
-fi
+  log "[OK] $name: HTTP $actual_code"
+  return 0
+}
 
-if [ "$POCKETBASE_OK" = false ]; then
-  echo "[$CHECK_TIME] ⚠️ 尝试自动重启 PocketBase..." | tee -a "$ALERT_LOG" || true
-  sudo systemctl reset-failed pocketbase || true
-  if ! sudo systemctl restart pocketbase; then
-    echo "[$CHECK_TIME] ❌ PocketBase 重启失败" | tee -a "$ALERT_LOG" || true
+function restart_service() {
+  local service=$1
+  log "[ACTION] 重启 $service ..."
+  sudo systemctl restart "$service" || sudo systemctl start "$service"
+  sleep 3
+  if sudo systemctl is-active --quiet "$service"; then
+    log "[OK] $service 重启成功"
+  else
+    log "[CRITICAL] $service 重启失败！"
   fi
+}
+
+# --- 检查开始 ---
+log "========== 健康检查开始 =========="
+
+# 1. Nginx
+check_service "Nginx" "http://localhost/" "200" || restart_service "nginx"
+
+# 2. PocketBase
+check_service "PocketBase" "http://localhost:8090/api/health" "200" || restart_service "pocketbase"
+
+# 3. Public API (Fastify)
+# health 路由不存在，用 dishes 接口验证
+check_service "PublicAPI" "http://localhost:3000/api/public/dishes" "200" || restart_service "public-api"
+
+# 4. 磁盘空间
+disk_usage=$(df -h / | awk 'NR==2 {print $5}' | tr -d '%')
+if [ "$disk_usage" -gt 90 ]; then
+  log "[WARN] 磁盘使用率 ${disk_usage}% > 90%"
+else
+  log "[OK] 磁盘使用率 ${disk_usage}%"
 fi
 
-# 发送通知（如果有配置 webhook）
-WEBHOOK_URL="${HEALTHCHECK_WEBHOOK_URL:-}"
-if [ -n "$WEBHOOK_URL" ]; then
-  JSON_MSG=$(printf '%s' "$ALERT_MSG" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null || printf '"%s"' "$ALERT_MSG")
-  curl -s -X POST "$WEBHOOK_URL" \
-    -H "Content-Type: application/json" \
-    -d "{\"msg_type\":\"text\",\"content\":{\"text\":$JSON_MSG}}" \
-    > /dev/null 2>&1 || true
-fi
+log "========== 健康检查结束 =========="
+echo "" >> "$LOG_FILE"
 
-exit 1
+# 保留最近 1000 行日志
+tail -n 1000 "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
