@@ -57,6 +57,11 @@ const router = createRouter({
           component: () => import('@/views/StatisticsView.vue'),
         },
         {
+          path: 'tables',
+          name: 'tableVisualization',
+          component: () => import('@/views/TableVisualizationView.vue'),
+        },
+        {
           path: 'settings',
           name: 'settings',
           component: () => import('@/views/SettingsView.vue'),

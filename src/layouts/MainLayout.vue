@@ -15,6 +15,7 @@ const mobileMenuOpen = ref(false)
 const navItems = [
   { path: '/', label: '订单管理', name: 'orderList' },
   { path: '/create-order', label: '新建订单', name: 'createOrder' },
+  { path: '/tables', label: '桌台全景', name: 'tableVisualization' },
   { path: '/statistics', label: '数据统计', name: 'statistics' },
   { path: '/settings', label: '系统设置', name: 'settings' },
 ]
