@@ -11,6 +11,7 @@ import { useClearTable } from '@/composables/useClearTable'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { printBill, printKitchenTicket } from '@/utils/printBill'
 import { useBluetoothPrinter, isBluetoothPrintSupported, type BluetoothPrintOrder } from '@/composables/useBluetoothPrinter'
+import { useUsbPrinter, isUsbPrintSupported } from '@/composables/useUsbPrinter'
 import EmptyState from '@/components/EmptyState.vue'
 import SkeletonBox from '@/components/SkeletonBox.vue'
 
@@ -108,6 +109,37 @@ async function handleBluetoothPrint() {
     toast.success('蓝牙打印已发送')
   } else if (btError.value) {
     toast.error(btError.value)
+  }
+}
+
+// P3-5: USB 打印
+const { print: printUsb, isConnecting: usbConnecting, lastError: usbError, connectedPrinter: usbPrinter } = useUsbPrinter()
+
+async function handleUsbPrint() {
+  if (!order.value) return
+  const o = order.value
+  const printOrder: BluetoothPrintOrder = {
+    restaurantName: settingsStore.settings?.restaurantName || '智能点菜系统',
+    orderNo: o.orderNo,
+    tableNo: o.tableNo,
+    guests: o.guests || 1,
+    items: (o.items || []).map((i) => ({
+      name: i.name,
+      quantity: i.quantity,
+      price: i.price,
+      remark: i.remark,
+    })),
+    totalAmount: o.totalAmount || 0,
+    discount: o.discount || 0,
+    finalAmount: o.finalAmount || 0,
+    remark: o.remark || '',
+    created: o.created,
+  }
+  const ok = await printUsb(printOrder)
+  if (ok) {
+    toast.success('USB 打印已发送')
+  } else if (usbError.value) {
+    toast.error(usbError.value)
   }
 }
 
@@ -296,6 +328,20 @@ async function clearTable() {
             @click="handleBluetoothPrint"
           >
             {{ btConnecting ? '连接中...' : (connectedPrinter?.server.connected ? '🖨️ 蓝牙打印' : '📡 蓝牙打印') }}
+          </button>
+          <!-- P3-5: USB 打印 -->
+          <button
+            :disabled="!isUsbPrintSupported() || usbConnecting"
+            :title="!isUsbPrintSupported() ? 'USB 打印需要 HTTPS 环境（Chrome/Edge）' : usbPrinter?.device?.opened ? `已连接: ${usbPrinter.name}` : '点击选择 USB 打印机'"
+            class="px-3 py-2 rounded-lg text-sm font-medium active:scale-[0.98] transition-transform disabled:opacity-40 disabled:cursor-not-allowed"
+            :class="[
+              usbPrinter?.device?.opened
+                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50',
+            ]"
+            @click="handleUsbPrint"
+          >
+            {{ usbConnecting ? '连接中...' : (usbPrinter?.device?.opened ? '🖨️ USB 打印' : '🔌 USB 打印') }}
           </button>
           <button
             :class="[
