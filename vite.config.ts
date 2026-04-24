@@ -10,11 +10,11 @@ export default defineConfig({
   server: {
     proxy: {
       '/api/public': {
-        target: 'http://127.0.0.1:3000',
+        target: process.env.VITE_API_PUBLIC_URL || 'http://127.0.0.1:3000',
         changeOrigin: true,
       },
       '/api': {
-        target: 'http://127.0.0.1:8090',
+        target: process.env.VITE_API_URL || 'http://127.0.0.1:8090',
         changeOrigin: true,
       },
     },
